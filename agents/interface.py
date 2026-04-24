@@ -67,7 +67,7 @@ class InterfaceAgent:
                 response_text = self._call_llm(prompt)
                 
         # [Skill 2] 장애 주입 스킬 (Chaos Orchestrator에게 역할 위임)
-        elif "장애" in user_text or "카오스" in user_text or "주입" in user_text or "죽여" in user_text:
+        elif any(keyword in user_text for keyword in ["장애", "카오스", "주입", "죽여", "과부하", "스트레스", "부하"]):
             # Orchestrator가 구독 중인 채널로 명령을 토스
             await redis_client.publish("agent.chaos", {"text": user_text})
             # Interface Agent는 위임 완료 메시지만 남김
