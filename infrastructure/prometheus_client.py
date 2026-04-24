@@ -16,7 +16,7 @@ class PrometheusClient:
                 response = await client.get(
                     f"{self.base_url}/api/v1/query",
                     params={"query": query},
-                    timeout=5.0
+                    timeout=15.0
                 )
                 response.raise_for_status()
                 return response.json()

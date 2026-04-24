@@ -43,7 +43,7 @@ class ObserverAgent:
             print("👁️ [Observer Agent] Prometheus 메트릭 스캐닝 중...")
             
             # PromQL: CPU 사용량이 비정상적으로 높은(0.5 이상) 파드만 색출하도록 쿼리 수정 (StressChaos 감지용)
-            query = 'sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m])) by (pod) > 0.5'
+            query = 'sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m])) by (pod) > 0.1'
             data = await prom_client.query_metric(query)
             
             # 실제 수집된 데이터가 있을 경우에만 분석 진행 (Mock 가상 데이터 제외)
