@@ -42,25 +42,24 @@ class ObserverAgent:
             await asyncio.sleep(15)  # 빠른 테스트를 위해 15초로 설정
             print("👁️ [Observer Agent] Prometheus 메트릭 스캐닝 중...")
             
-            # PromQL: 가장 CPU를 많이 쓰는 상위 3개 파드의 1분 평균 사용량을 무조건 가져옴
-            query = 'topk(3, sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m])) by (pod))'
+            # PromQL: 파드별 라벨이 누락된 환경이므로 서버(노드) 전체 CPU 사용률(0~1)을 감시하도록 우회
+            query = '1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m]))'
             data = await prom_client.query_metric(query)
             
             results = data.get("data", {}).get("result", [])
             
-            # 터미널에 간략한 지표 출력 (사용자 요청 사항)
+            # 터미널에 간략한 지표 출력
+            node_cpu = 0.0
             if results:
-                metric_summary = ", ".join([f"{r['metric'].get('pod', 'unknown')}: {float(r['value'][1]):.3f}" for r in results])
-                print(f"   ↳ [현재 CPU Top 3] {metric_summary}")
+                node_cpu = float(results[0]['value'][1])
+                print(f"   ↳ [현재 서버 전체 CPU] {node_cpu * 100:.1f}%")
             else:
-                print("   ↳ [현재 CPU] 수집된 데이터 없음 (Prometheus 메트릭 확인 필요)")
+                print("   ↳ [현재 서버 CPU] 수집된 데이터 없음 (Node Exporter 확인 필요)")
 
-            # 파이썬 레벨에서 0.1(100m) 코어 이상을 사용하는 파드만 추려냄
-            target_data = [r for r in results if float(r['value'][1]) > 0.1]
-            
-            if target_data:
+            # 파이썬 레벨에서 서버 CPU가 30%(0.3) 이상일 경우 알림 트리거
+            if node_cpu > 0.3:
                 print("👁️ [Observer Agent] 이상 징후 탐지! LLM 분석 요청 중...")
-                prompt = f"다음 파드들의 CPU 사용량 지표(Mock)가 비정상적으로 높게 감지되었어: {target_data}. 대시보드를 보고 있는 관리자에게 선제적으로 위험을 경고하는 2문장의 알림 메시지를 작성해줘."
+                prompt = f"서버의 전체 CPU 사용률이 {node_cpu * 100:.1f}%로 비정상적으로 높게 감지되었어. 대시보드를 보고 있는 관리자에게 선제적으로 위험을 경고하는 2문장의 알림 메시지를 작성해줘."
                 
                 alert_msg = self._call_llm(prompt)
                 
