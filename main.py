@@ -8,6 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from api.server import app
 from agents.interface import InterfaceAgent
+from agents.observer import ObserverAgent
 from core.config import settings
 
 async def start_background_agents():
@@ -20,12 +21,13 @@ async def start_background_agents():
         # 1. Interface Agent (명령어 해석 및 조치)
         interface_agent = InterfaceAgent()
         
-        # 추후 Observer, Orchestrator 에이전트 추가 위치
-        # observer = ObserverAgent()
+        # 2. Observer Agent (이상 징후 상시 모니터링)
+        observer_agent = ObserverAgent()
         
         # 모든 에이전트의 start() 메서드를 병렬로 실행
         await asyncio.gather(
-            interface_agent.start()
+            interface_agent.start(),
+            observer_agent.start()
         )
     except Exception as e:
         print(f"❌ [SYSTEM] 에이전트 구동 실패: {e}")
