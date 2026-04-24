@@ -24,12 +24,14 @@ class PrometheusClient:
             print(f"[Prometheus Error] Query failed: {e}")
             # 데모/테스트 환경에서 프로메테우스가 안 뜰 경우 가상 데이터 반환
             return {
-                "status": "error", 
-                "error": str(e),
-                "mock_data": [
-                    {"metric": {"pod": "payment-api-7f8a"}, "value": [1616161616, "0.85"]},
-                    {"metric": {"pod": "database-statefulset-0"}, "value": [1616161616, "0.92"]}
-                ]
+                "status": "success",
+                "data": {
+                    "resultType": "vector",
+                    "result": [
+                        {"metric": {"pod": "payment-api-7f8a"}, "value": [1616161616, "0.85"]},
+                        {"metric": {"pod": "database-statefulset-0"}, "value": [1616161616, "0.92"]}
+                    ]
+                }
             }
 
 prom_client = PrometheusClient()

@@ -1,132 +1,132 @@
 import asyncio
 import json
-import boto3
+from strands import Agent, tool
+from strands.models import BedrockModel
 from infrastructure.redis_client import redis_client
 from infrastructure.k8s_client import k8s_client
 from core.config import settings
 
+# ─────────────────────────────────────────────
+# Tool 정의: LLM이 필요에 따라 자동으로 선택·호출
+# ─────────────────────────────────────────────
+
+@tool
+def get_pod_status(namespace: str = "default") -> str:
+    """
+    쿠버네티스 파드 상태를 조회합니다.
+    사용자가 파드 목록, 상태 확인, 클러스터 상태 등을 요청할 때 사용합니다.
+
+    Args:
+        namespace: 조회할 네임스페이스 (기본값: "default")
+
+    Returns:
+        파드 목록 및 상태 JSON 문자열
+    """
+    pods = k8s_client.get_pods(namespace)
+    return json.dumps(pods, ensure_ascii=False, indent=2)
+
+
+@tool
+def get_cluster_context() -> str:
+    """
+    현재 K8s 클러스터의 네임스페이스 목록과 전체 파드 요약 정보를 반환합니다.
+    카오스 실험 타겟 선정이나 클러스터 전반의 상태 파악이 필요할 때 사용합니다.
+
+    Returns:
+        네임스페이스 목록 및 파드+라벨 요약 JSON 문자열
+    """
+    namespaces = k8s_client.get_namespaces()
+    pods_summary = k8s_client.get_all_pods_summary()
+    return json.dumps({
+        "namespaces": namespaces,
+        "pods": pods_summary
+    }, ensure_ascii=False, indent=2)
+
+
+@tool
+def delegate_chaos_injection(chaos_command: str) -> str:
+    """
+    카오스 장애 주입 명령을 Chaos Orchestrator 에이전트에게 위임합니다.
+    사용자가 파드 CPU 스트레스, 파드 킬(kill) 등의 장애 주입을 요청하고
+    타겟(대상 파드/서비스)과 지속 시간(몇 초)이 모두 명확히 확인된 경우에만 호출합니다.
+    파라미터가 불분명하면 이 Tool을 호출하지 말고 사용자에게 먼저 되물어보세요.
+
+    Args:
+        chaos_command: 타겟과 지속 시간이 포함된 완전한 카오스 명령어 (예: "nginx 파드 4개에 120초 CPU 스트레스")
+
+    Returns:
+        위임 완료 확인 메시지
+    """
+    # 이 함수의 실제 Redis publish는 async이므로 결과를 큐에 담아 handle_message에서 처리
+    # 여기서는 플래그 역할만 함 — 실제 발행은 InterfaceAgent.handle_message에서 수행
+    return f"__CHAOS_DELEGATE__:{chaos_command}"
+
+
+# ─────────────────────────────────────────────
+# Interface Agent 클래스
+# ─────────────────────────────────────────────
+
 class InterfaceAgent:
     """
-    사용자의 자연어 명령을 해석하고, Action Plan을 수립하는 진입점 에이전트.
-    (Strands SDK의 기반이 되는 Bedrock Claude 모델과 K8s Tool 호출을 담당합니다)
+    사용자의 자연어 명령을 해석하고, Strands Agent의 Tool Use 기반으로
+    적절한 K8s 조회 또는 카오스 주입을 수행하는 진입점 에이전트.
     """
     def __init__(self):
-        # AWS Bedrock Runtime 클라이언트 초기화
-        self.bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=settings.AWS_REGION
+        model = BedrockModel(
+            model_id=settings.LLM_MODEL_EXPERT,
+            region_name=settings.AWS_REGION,
         )
-        self.model_haiku = settings.LLM_MODEL_ROUTING
-        self.model_sonnet = settings.LLM_MODEL_EXPERT
-        
-    def _call_llm(self, prompt: str, use_sonnet: bool = False) -> str:
-        """Bedrock Claude 모델을 호출하여 응답을 생성합니다."""
-        model_id = self.model_sonnet if use_sonnet else self.model_haiku
-        try:
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 512,
-                "messages": [{"role": "user", "content": prompt}],
-                "system": "You are the 'Interface Agent' of the Aegis-Chaos system. You are a highly professional Site Reliability Engineer (SRE). Answer concisely and clearly in Korean."
-            })
-            
-            response = self.bedrock.invoke_model(
-                body=body,
-                modelId=model_id,
-                accept="application/json",
-                contentType="application/json"
-            )
-            response_body = json.loads(response.get('body').read())
-            return response_body['content'][0]['text']
-        except Exception as e:
-            return f"❌ [LLM 연동 오류] AWS Bedrock 호출에 실패했습니다: {str(e)}"
-
-    def _classify_intent(self, user_text: str) -> str:
-        """
-        Claude 3 Haiku(경량 모델)를 사용하여 사용자의 의도를 3가지 중 하나로 정확히 분류합니다.
-        """
-        prompt = f"""
-다음 사용자의 입력을 분석하여 의도(Intent)를 분류해.
-오직 아래 4가지 카테고리 이름 중 하나만 출력해야 해. (다른 말은 절대 금지)
-
-1. "POD_STATUS" : 쿠버네티스 파드의 상태나 목록을 조회하려는 의도.
-2. "CHAOS_INJECTION_READY" : 파드 죽이기, 과부하 등 카오스 장애 주입 의도이며, 타겟 대상과 '지속 시간(예: 60초)' 등의 필수 디테일이 구체적으로 명시된 경우.
-3. "CHAOS_INJECTION_ASK" : 장애 주입 의도지만, 구체적으로 몇 개의 파드에, '몇 초 동안' 부하를 줄 지 등의 디테일이 명시되지 않아서 사용자에게 구체적인 수치를 되물어봐야 하는 경우.
-4. "GENERAL" : 위 세 가지에 해당하지 않는 일반적인 질문이나 대화.
-
-사용자 입력: "{user_text}"
-분류 결과:"""
-        intent = self._call_llm(prompt).strip()
-        # 안전 장치
-        if "POD_STATUS" in intent: return "POD_STATUS"
-        if "CHAOS_INJECTION_READY" in intent: return "CHAOS_INJECTION_READY"
-        if "CHAOS_INJECTION_ASK" in intent: return "CHAOS_INJECTION_ASK"
-        if "CHAOS_INJECTION" in intent: return "CHAOS_INJECTION_ASK" # 애매하면 무조건 물어봄
-        return "GENERAL"
+        self.agent = Agent(
+            model=model,
+            tools=[get_pod_status, get_cluster_context, delegate_chaos_injection],
+            system_prompt=(
+                "You are the 'Interface Agent' of the Aegis-Chaos system — "
+                "a highly professional Site Reliability Engineer (SRE). "
+                "Answer concisely and clearly in Korean. "
+                "Use the available tools to fulfill user requests accurately. "
+                "When chaos injection is requested but target or duration is unclear, "
+                "use get_cluster_context to check the cluster state, then ask the user "
+                "for the missing details. Do NOT call delegate_chaos_injection without "
+                "confirmed target and duration."
+            ),
+        )
 
     async def handle_message(self, data: dict):
         """Redis 채널에서 수신한 메시지를 처리합니다."""
-        user_text = data.get("text", "").lower()
+        user_text = data.get("text", "")
         print(f"📥 [Interface Agent] 명령 수신: {user_text}")
-        
-        # 진행 상태 알림 (웹소켓 클라이언트로 전송)
+
         await redis_client.publish("agent.outbound", {
             "sender": "Interface Agent",
             "text": "명령을 분석 중입니다..."
         })
-        
-        # [의도 분석] 하이쿠(Haiku) 모델을 통한 Semantic Routing
-        intent = self._classify_intent(user_text)
-        print(f"🧠 [Interface Agent] 의도 분석 결과: {intent}")
-        
-        # [Skill 1] 파드 상태 조회 스킬 (Observer Agent 역할 일부 위임)
-        if intent == "POD_STATUS":
-            pods = k8s_client.get_pods("default")
-            
-            if not pods:
-                response_text = "현재 클러스터(default 네임스페이스)에 파드가 없거나 통신에 실패했습니다."
-            else:
-                summary = f"현재 default 네임스페이스 파드 목록 ({len(pods)}개):\n"
-                for p in pods:
-                    summary += f"- {p['name']} (상태: {p['status']}, 재시작: {p['restarts']})\n"
-                
-                # LLM을 통해 이쁘게 요약 (고급 분석이므로 Sonnet 사용)
-                prompt = f"다음 Kubernetes 파드 상태 데이터를 바탕으로 현재 클러스터 상태를 사용자에게 3줄 이내로 매우 전문적이고 깔끔하게 브리핑해줘:\n{summary}"
-                response_text = self._call_llm(prompt, use_sonnet=True)
-                
-        # [Skill 2] 장애 주입 스킬 (디테일이 부족한 경우 되묻기)
-        elif intent == "CHAOS_INJECTION_ASK":
-            # 실제 K8s 클러스터 상태를 읽어와서 컨텍스트로 제공
-            namespaces = k8s_client.get_namespaces()
-            pods_summary = k8s_client.get_all_pods_summary()
-            
-            prompt = f"""사용자의 명령 '{user_text}'은 장애 주입을 하려는 의도이지만, 타겟이나 지속 시간 등 디테일이 부족해. 
-현재 K8s 클러스터 상태를 참고해서 똑똑하게 되물어봐야 해.
 
-[현재 K8s 클러스터 상태]
-네임스페이스 목록: {namespaces}
-파드 및 라벨 목록: {pods_summary}
+        # Strands Agent는 동기(sync) 호출 — asyncio.to_thread로 비동기 루프에서 안전하게 실행
+        result = await asyncio.to_thread(self.agent, user_text)
+        response_text = str(result)
 
-위 상태를 보고, 사용자가 언급한 파드가 실제로 어디에 있는지 파악한 뒤 "현재 OOO 네임스페이스에 XXX 파드가 확인되는데, 이 파드들에 몇 초 동안 부하를 줄까요?" 처럼 아주 구체적이고 정중하게 1~2문장으로 되물어봐줘."""
-            response_text = self._call_llm(prompt, use_sonnet=True)
+        # delegate_chaos_injection Tool이 호출된 경우 → Orchestrator로 전달
+        chaos_flag = "__CHAOS_DELEGATE__:"
+        if chaos_flag in response_text:
+            # Tool 반환값에서 실제 명령어 추출
+            chaos_cmd = response_text.split(chaos_flag, 1)[-1].strip()
+            # LLM 응답 중 Tool 결과 이후의 텍스트(사용자에게 보여줄 메시지)를 분리
+            user_facing = response_text.split(chaos_flag)[0].strip()
+            if not user_facing:
+                user_facing = "🔥 파라미터가 모두 확인되었습니다. Chaos Orchestrator에게 장애 주입 명령을 하달했습니다. 설정하신 시간이 경과한 후 최종 리포트가 도착할 예정입니다."
 
-        # [Skill 3] 장애 주입 스킬 (명확한 경우 바로 실행)
-        elif intent == "CHAOS_INJECTION_READY":
-            # Orchestrator가 구독 중인 채널로 명령을 토스
-            await redis_client.publish("agent.chaos", {"text": user_text})
-            # Interface Agent는 위임 완료 메시지만 남김
-            response_text = "🔥 파라미터가 모두 확인되었습니다. Chaos Orchestrator에게 장애 주입(Chaos Experiment) 명령을 하달했습니다. 설정하신 시간이 경과한 후 최종 리포트가 도착할 예정입니다."
-                
-        # [Skill 3] 일반 대화 및 기타 도메인 (SRE 챗봇이므로 Sonnet 사용)
+            await redis_client.publish("agent.chaos", {"text": chaos_cmd})
+            await redis_client.publish("agent.outbound", {
+                "sender": "Interface Agent",
+                "text": user_facing
+            })
         else:
-            prompt = f"사용자 명령: '{user_text}'. Aegis-Chaos 시스템의 Interface 에이전트로서 어떻게 조치할지 짧게 대답해줘."
-            response_text = self._call_llm(prompt, use_sonnet=True)
+            await redis_client.publish("agent.outbound", {
+                "sender": "Interface Agent",
+                "text": response_text
+            })
 
-        # 최종 분석 결과 발송
-        await redis_client.publish("agent.outbound", {
-            "sender": "Interface Agent",
-            "text": response_text
-        })
+        print(f"✅ [Interface Agent] 응답 완료")
 
     async def start(self):
         print("🤖 [Interface Agent] 구동 시작 (Listening to 'agent.inbound'...)")

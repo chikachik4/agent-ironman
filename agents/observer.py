@@ -1,8 +1,8 @@
 import asyncio
 import json
-import boto3
 from infrastructure.redis_client import redis_client
 from infrastructure.prometheus_client import prom_client
+from core.llm import BedrockLLMClient
 from core.config import settings
 
 class ObserverAgent:
@@ -11,28 +11,13 @@ class ObserverAgent:
     LLM을 통해 원인을 1차 분석하여 대시보드에 선제적으로 경고 알림을 보냅니다.
     """
     def __init__(self):
-        self.bedrock = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=settings.AWS_REGION
-        )
-        self.model_id = settings.LLM_MODEL_ROUTING 
+        self.llm = BedrockLLMClient(use_sonnet=False)
 
     def _call_llm(self, prompt: str) -> str:
         """AWS Bedrock Claude 모델 호출"""
         try:
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 300,
-                "messages": [{"role": "user", "content": prompt}],
-                "system": "You are the 'Observer Agent' of Aegis-Chaos. You are a vigilant monitoring system. Alert anomalies strictly but professionally in Korean. Keep it under 3 sentences."
-            })
-            response = self.bedrock.invoke_model(
-                body=body,
-                modelId=self.model_id,
-                accept="application/json",
-                contentType="application/json"
-            )
-            return json.loads(response.get('body').read())['content'][0]['text']
+            system_prompt = "You are the 'Observer Agent' of Aegis-Chaos. You are a vigilant monitoring system. Alert anomalies strictly but professionally in Korean. Keep it under 3 sentences."
+            return self.llm.generate(prompt, system_prompt=system_prompt, max_tokens=300)
         except Exception as e:
             return f"오류 발생 (Observer LLM): {str(e)}"
 
@@ -55,6 +40,13 @@ class ObserverAgent:
                 print(f"   ↳ [현재 서버 전체 CPU 사용량] {node_cpu_cores:.2f} 코어")
             else:
                 print("   ↳ [현재 서버 CPU] 수집된 데이터 없음 (프로메테우스 확인 필요)")
+
+            # [Metrics Broadcast] 대시보드 업데이트용 지표 발송
+            await redis_client.publish("agent.outbound", {
+                "type": "metric",
+                "cpu": f"{(node_cpu_cores * 100):.1f}%" if results else "0.0%",
+                "memory": "6.8 GB"  # TODO: 메모리 연동 예정
+            })
 
             # 파이썬 레벨에서 서버 CPU가 0.5 코어 이상 사용될 경우 알림 트리거
             if node_cpu_cores > 0.5:

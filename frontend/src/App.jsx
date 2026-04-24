@@ -4,6 +4,7 @@ import './index.css';
 
 function App() {
   const [messages, setMessages] = useState([]);
+  const [metrics, setMetrics] = useState({ cpu: "0.0%", memory: "0.0 GB" });
   const [input, setInput] = useState('');
   const [ws, setWs] = useState(null);
   const [status, setStatus] = useState(null);
@@ -16,24 +17,47 @@ function App() {
       .then(data => setStatus(data))
       .catch(err => console.error("API Error", err));
 
-    // 2. WebSocket 연결
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // 로컬 개발일 때는 8000포트(FastAPI) 강제 참조
-    const wsUrl = window.location.port === '5173' 
-                  ? 'ws://localhost:8000/ws' 
-                  : `${protocol}//${window.location.host}/ws`;
-                  
-    const socket = new WebSocket(wsUrl);
+    let socket;
+    let reconnectTimer;
     
-    socket.onopen = () => console.log("WebSocket Connected");
-    socket.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      setMessages(prev => [...prev, msg]);
+    const connect = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = window.location.port === '5173' 
+                    ? 'ws://localhost:8000/ws' 
+                    : `${protocol}//${window.location.host}/ws`;
+                    
+      socket = new WebSocket(wsUrl);
+      
+      socket.onopen = () => {
+        console.log("WebSocket Connected");
+        setWs(socket);
+      };
+      
+      socket.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "metric") {
+            setMetrics({ cpu: msg.cpu, memory: msg.memory });
+        } else {
+            setMessages(prev => [...prev, msg]);
+        }
+      };
+
+      socket.onclose = () => {
+        console.log("WebSocket Disconnected. Reconnecting in 3s...");
+        setWs(null);
+        reconnectTimer = setTimeout(connect, 3000);
+      };
     };
     
-    setWs(socket);
+    connect();
 
-    return () => socket.close();
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -64,19 +88,19 @@ function App() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', flex: 1 }}>
-          <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+           <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
                <Cpu size={18} />
                <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>CPU Usage (Target)</h3>
              </div>
-             <div className="mono-text" style={{fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-blue)'}}>42.0%</div>
+             <div className="mono-text" style={{fontSize: '2.5rem', fontWeight: 700, color: 'var(--accent-blue)'}}>{metrics.cpu}</div>
           </div>
           <div className="glass-panel" style={{ padding: '1.2rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
                <Database size={18} />
                <h3 style={{ margin: 0, fontSize: '0.9rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Memory (Target)</h3>
              </div>
-             <div className="mono-text" style={{fontSize: '2.5rem', fontWeight: 700, color: 'var(--warning)'}}>6.8 GB</div>
+             <div className="mono-text" style={{fontSize: '2.5rem', fontWeight: 700, color: 'var(--warning)'}}>{metrics.memory}</div>
           </div>
           <div className="glass-panel" style={{ padding: '1rem', gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', borderStyle: 'dashed' }}>
              [여기에 Grafana 시계열 차트 또는 OpenSearch 대시보드가 임베딩됩니다]

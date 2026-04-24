@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "test"))
     VPC1_INSTANCE_PRIVATE_IP: str = "127.0.0.1"
     VPC3_INSTANCE_PRIVATE_IP: str = "127.0.0.1"
-    PROJECT_PREFIX: str = "test-" if ENVIRONMENT == "test" else "bookjjeok-cloud-"
+    
+    @property
+    def PROJECT_PREFIX(self) -> str:
+        return "test-" if self.ENVIRONMENT == "test" else "bookjjeok-cloud-"
     
     # VPC3 (Management Hub) Config
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
