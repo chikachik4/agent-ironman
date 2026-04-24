@@ -10,7 +10,7 @@ class ClusterConfig(BaseModel):
     is_active: bool = True
 
 class Settings(BaseSettings):
-    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "test")
+    ENVIRONMENT: str = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "test"))
     PROJECT_PREFIX: str = "test-" if ENVIRONMENT == "test" else "bookjjeok-cloud-"
     
     # VPC3 (Management Hub) Config
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     def CLUSTERS(self) -> Dict[str, ClusterConfig]:
         if self.ENVIRONMENT == "test":
             # Sandbox Environment (Test)
-            vpc1_ip = os.getenv("VPC1_PRIVATE_IP", "127.0.0.1")
+            vpc1_ip = os.getenv("VPC1_INSTANCE_PRIVATE_IP", "127.0.0.1")
             return {
                 "vpc1": ClusterConfig(
                     name=f"{self.PROJECT_PREFIX}sandbox-k3s",
