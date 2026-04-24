@@ -20,8 +20,18 @@ class ChaosOrchestratorAgent:
 
     def _generate_manifests_via_llm(self, user_text: str) -> list:
         """Sonnet 3.5를 활용하여 자연어 명령을 Chaos Mesh JSON 배열로 변환"""
+        
+        # 실제 K8s 클러스터 상태를 읽어와서 컨텍스트로 제공
+        namespaces = k8s_client.get_namespaces()
+        pods_summary = k8s_client.get_all_pods_summary()
+        
         prompt = f"""
 You are a Kubernetes Chaos Engineering expert. Translate the user's natural language command into a JSON array of Chaos Mesh Custom Resource manifests.
+
+[현재 K8s 클러스터 상태]
+네임스페이스 목록: {namespaces}
+파드 및 라벨 목록: {pods_summary}
+
 Rules:
 1. ONLY return a valid JSON array. Do not wrap in markdown (e.g. no ```json). No explanations.
 2. apiVersion must be "chaos-mesh.org/v1alpha1".
@@ -32,6 +42,7 @@ Rules:
 7. Make sure each object has a unique "name" in metadata (e.g., append a random suffix or timestamp).
 8. Generate separate JSON objects in the array if multiple actions (e.g., kill AND stress) are requested.
 9. MUST add "duration": "60s" to the "spec" of every manifest unless the user specifies a different duration.
+10. IMPORTANT: Analyze the [현재 K8s 클러스터 상태] above. Find the EXACT namespace and labelSelectors that match the user's target. NEVER invent or guess labels (like app=nginx). If the target is found in the state, use the exact labels and namespace found. ALWAYS include "namespaces": ["<target_namespace>"] inside the "selector" object.
 
 User Command: "{user_text}"
 """
@@ -84,7 +95,14 @@ User Command: "{user_text}"
                 # 타임스탬프를 강제로 덮어씌워 이름 충돌 완벽 방지
                 original_name = manifest["metadata"].get("name", "chaos")
                 manifest["metadata"]["name"] = f"{original_name}-{int(time.time())}"
-                manifest["metadata"]["namespace"] = "default"
+                
+                # 강제 네임스페이스 주입 (AI가 놓쳤을 경우 대비)
+                if "namespace" not in manifest["metadata"]:
+                    manifest["metadata"]["namespace"] = "default"
+                if "selector" not in manifest["spec"]:
+                    manifest["spec"]["selector"] = {}
+                if "namespaces" not in manifest["spec"]["selector"]:
+                    manifest["spec"]["selector"]["namespaces"] = [manifest["metadata"]["namespace"]]
                 
                 kind = manifest.get("kind", "podchaos").lower()
                 

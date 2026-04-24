@@ -61,6 +61,33 @@ class MultiClusterK8sClient:
                 {"name": "database-statefulset-0", "status": "Pending", "restarts": 0},
             ]
 
+    def get_namespaces(self) -> list:
+        """클러스터의 모든 네임스페이스를 반환합니다."""
+        try:
+            ns_list = self.core_v1.list_namespace()
+            return [ns.metadata.name for ns in ns_list.items]
+        except Exception as e:
+            print(f"[K8s Error] get_namespaces: {e}")
+            return ["default"]
+
+    def get_all_pods_summary(self) -> list:
+        """AI 컨텍스트 제공을 위해 클러스터 내 핵심 파드 정보를 (네임스페이스, 이름, 라벨) 반환합니다."""
+        try:
+            pods = self.core_v1.list_pod_for_all_namespaces()
+            summary = []
+            for pod in pods.items:
+                # kube-system 등 시스템 파드는 너무 많으므로 제외 가능 (여기서는 단순화를 위해 모두 포함)
+                if pod.metadata.namespace not in ["kube-system", "chaos-mesh"]:
+                    summary.append({
+                        "namespace": pod.metadata.namespace,
+                        "name": pod.metadata.name,
+                        "labels": pod.metadata.labels or {}
+                    })
+            return summary
+        except Exception as e:
+            print(f"[K8s Error] get_all_pods_summary: {e}")
+            return [{"namespace": "default", "name": "mock-pod", "labels": {"app": "mock"}}]
+
     def get_deployments(self, namespace: str = "default") -> list:
         """지정된 네임스페이스의 디플로이먼트 상태를 조회합니다."""
         try:

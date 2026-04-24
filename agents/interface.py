@@ -96,7 +96,18 @@ class InterfaceAgent:
                 
         # [Skill 2] 장애 주입 스킬 (디테일이 부족한 경우 되묻기)
         elif intent == "CHAOS_INJECTION_ASK":
-            prompt = f"사용자의 명령 '{user_text}'은 장애 주입을 하려는 의도이지만, 지속 시간이나 타겟 수량 등 구체적인 디테일이 부족해. 시스템의 안전을 위해 구체적으로 몇 초 동안, 몇 개의 파드에 주입할지 물어보는 아주 정중한 질문을 1~2문장으로 작성해줘."
+            # 실제 K8s 클러스터 상태를 읽어와서 컨텍스트로 제공
+            namespaces = k8s_client.get_namespaces()
+            pods_summary = k8s_client.get_all_pods_summary()
+            
+            prompt = f"""사용자의 명령 '{user_text}'은 장애 주입을 하려는 의도이지만, 타겟이나 지속 시간 등 디테일이 부족해. 
+현재 K8s 클러스터 상태를 참고해서 똑똑하게 되물어봐야 해.
+
+[현재 K8s 클러스터 상태]
+네임스페이스 목록: {namespaces}
+파드 및 라벨 목록: {pods_summary}
+
+위 상태를 보고, 사용자가 언급한 파드가 실제로 어디에 있는지 파악한 뒤 "현재 OOO 네임스페이스에 XXX 파드가 확인되는데, 이 파드들에 몇 초 동안 부하를 줄까요?" 처럼 아주 구체적이고 정중하게 1~2문장으로 되물어봐줘."""
             response_text = self._call_llm(prompt, use_sonnet=True)
 
         # [Skill 3] 장애 주입 스킬 (명확한 경우 바로 실행)
