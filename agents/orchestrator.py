@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import boto3
 from infrastructure.redis_client import redis_client
 from infrastructure.k8s_client import k8s_client
@@ -42,7 +43,7 @@ class ChaosOrchestratorAgent:
         # 1. 사용자의 명령어(의도)에 따라 주입할 카오스 종류 결정
         if "cpu" in user_text.lower() or "과부하" in user_text or "스트레스" in user_text:
             chaos_type = "StressChaos"
-            chaos_name = "aegis-demo-cpu-stress"
+            chaos_name = f"aegis-demo-cpu-stress-{int(time.time())}"
             manifest = {
                 "apiVersion": "chaos-mesh.org/v1alpha1",
                 "kind": "StressChaos",
@@ -56,7 +57,7 @@ class ChaosOrchestratorAgent:
             }
         else:
             chaos_type = "PodChaos"
-            chaos_name = "aegis-demo-pod-kill"
+            chaos_name = f"aegis-demo-pod-kill-{int(time.time())}"
             manifest = {
                 "apiVersion": "chaos-mesh.org/v1alpha1",
                 "kind": "PodChaos",
@@ -71,18 +72,6 @@ class ChaosOrchestratorAgent:
         # 2. 클러스터에 장애 객체 생성
         action_result = "성공"
         try:
-            # 먼저 이전 데모 객체가 있다면 삭제 시도
-            try:
-                k8s_client.custom_obj.delete_namespaced_custom_object(
-                    group="chaos-mesh.org",
-                    version="v1alpha1",
-                    namespace="default",
-                    plural=chaos_type.lower(),
-                    name=chaos_name
-                )
-            except:
-                pass # 없으면 패스
-            
             # 장애 객체 생성
             k8s_client.custom_obj.create_namespaced_custom_object(
                 group="chaos-mesh.org",
