@@ -66,7 +66,14 @@ class InterfaceAgent:
                 prompt = f"다음 Kubernetes 파드 상태 데이터를 바탕으로 현재 클러스터 상태를 사용자에게 3줄 이내로 매우 전문적이고 깔끔하게 브리핑해줘:\n{summary}"
                 response_text = self._call_llm(prompt)
                 
-        # [Skill 2] 일반 대화 및 기타 도메인
+        # [Skill 2] 장애 주입 스킬 (Chaos Orchestrator에게 역할 위임)
+        elif "장애" in user_text or "카오스" in user_text or "주입" in user_text or "죽여" in user_text:
+            # Orchestrator가 구독 중인 채널로 명령을 토스
+            await redis_client.publish("agent.chaos", {"text": user_text})
+            # Interface Agent는 위임 완료 메시지만 남김
+            response_text = "🔥 Chaos Orchestrator 에이전트에게 장애 주입(Chaos Experiment) 명령을 하달했습니다. 오케스트레이터의 실행 결과를 기다려주세요."
+                
+        # [Skill 3] 일반 대화 및 기타 도메인
         else:
             prompt = f"사용자 명령: '{user_text}'. Aegis-Chaos 시스템의 Interface 에이전트로서 어떻게 조치할지 짧게 대답해줘."
             response_text = self._call_llm(prompt)
