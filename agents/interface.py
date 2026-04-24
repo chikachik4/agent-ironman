@@ -40,6 +40,26 @@ class InterfaceAgent:
         except Exception as e:
             return f"❌ [LLM 연동 오류] AWS Bedrock 호출에 실패했습니다: {str(e)}"
 
+    def _classify_intent(self, user_text: str) -> str:
+        """
+        Claude 3 Haiku(경량 모델)를 사용하여 사용자의 의도를 3가지 중 하나로 정확히 분류합니다.
+        """
+        prompt = f"""
+다음 사용자의 입력을 분석하여 의도(Intent)를 분류해.
+오직 아래 3가지 카테고리 이름 중 하나만 출력해야 해. (다른 말은 절대 금지)
+
+1. "POD_STATUS" : 쿠버네티스 파드의 상태나 목록을 조회하려는 의도.
+2. "CHAOS_INJECTION" : 파드를 죽이거나, 삭제하거나, CPU 과부하, 스트레스, 카오스 장애를 주입하려는 의도.
+3. "GENERAL" : 위 두 가지에 해당하지 않는 일반적인 질문이나 대화.
+
+사용자 입력: "{user_text}"
+분류 결과:"""
+        intent = self._call_llm(prompt).strip()
+        # 안전 장치: LLM이 이상하게 대답했을 경우 파싱
+        if "POD_STATUS" in intent: return "POD_STATUS"
+        if "CHAOS_INJECTION" in intent: return "CHAOS_INJECTION"
+        return "GENERAL"
+
     async def handle_message(self, data: dict):
         """Redis 채널에서 수신한 메시지를 처리합니다."""
         user_text = data.get("text", "").lower()
@@ -51,8 +71,12 @@ class InterfaceAgent:
             "text": "명령을 분석 중입니다..."
         })
         
+        # [의도 분석] 하이쿠(Haiku) 모델을 통한 Semantic Routing
+        intent = self._classify_intent(user_text)
+        print(f"🧠 [Interface Agent] 의도 분석 결과: {intent}")
+        
         # [Skill 1] 파드 상태 조회 스킬 (Observer Agent 역할 일부 위임)
-        if "파드" in user_text or "상태" in user_text or "pod" in user_text:
+        if intent == "POD_STATUS":
             pods = k8s_client.get_pods("default")
             
             if not pods:
@@ -67,7 +91,7 @@ class InterfaceAgent:
                 response_text = self._call_llm(prompt)
                 
         # [Skill 2] 장애 주입 스킬 (Chaos Orchestrator에게 역할 위임)
-        elif any(keyword in user_text for keyword in ["장애", "카오스", "주입", "죽여", "과부하", "스트레스", "부하"]):
+        elif intent == "CHAOS_INJECTION":
             # Orchestrator가 구독 중인 채널로 명령을 토스
             await redis_client.publish("agent.chaos", {"text": user_text})
             # Interface Agent는 위임 완료 메시지만 남김
