@@ -42,13 +42,21 @@ class ObserverAgent:
             await asyncio.sleep(15)  # 빠른 테스트를 위해 15초로 설정
             print("👁️ [Observer Agent] Prometheus 메트릭 스캐닝 중...")
             
-            # PromQL: CPU 사용량이 비정상적으로 높은(0.5 이상) 파드만 색출하도록 쿼리 수정 (StressChaos 감지용)
-            query = 'sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m])) by (pod) > 0.1'
+            # PromQL: 가장 CPU를 많이 쓰는 상위 3개 파드의 1분 평균 사용량을 무조건 가져옴
+            query = 'topk(3, sum(rate(container_cpu_usage_seconds_total{namespace="default"}[1m])) by (pod))'
             data = await prom_client.query_metric(query)
             
-            # 실제 수집된 데이터가 있을 경우에만 분석 진행 (Mock 가상 데이터 제외)
             results = data.get("data", {}).get("result", [])
-            target_data = results
+            
+            # 터미널에 간략한 지표 출력 (사용자 요청 사항)
+            if results:
+                metric_summary = ", ".join([f"{r['metric'].get('pod', 'unknown')}: {float(r['value'][1]):.3f}" for r in results])
+                print(f"   ↳ [현재 CPU Top 3] {metric_summary}")
+            else:
+                print("   ↳ [현재 CPU] 수집된 데이터 없음 (Prometheus 메트릭 확인 필요)")
+
+            # 파이썬 레벨에서 0.1(100m) 코어 이상을 사용하는 파드만 추려냄
+            target_data = [r for r in results if float(r['value'][1]) > 0.1]
             
             if target_data:
                 print("👁️ [Observer Agent] 이상 징후 탐지! LLM 분석 요청 중...")
