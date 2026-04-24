@@ -54,6 +54,15 @@ User Command: "{user_text}"
             print(f"❌ [LLM JSON Parsing Error]: {e}")
             return []
 
+    async def _wait_and_report(self, report_data: dict, wait_seconds: int):
+        """지정된 시간만큼 대기한 후 리포트 에이전트에게 결과를 발송합니다."""
+        if wait_seconds > 0:
+            print(f"⏳ [Orchestrator] 카오스 실험 진행 중... ({wait_seconds}초 후 리포트 발송 예정)")
+            await asyncio.sleep(wait_seconds)
+            
+        print("✅ [Orchestrator] 카오스 실험 완료. Reporter Agent 호출.")
+        await redis_client.publish("agent.report", report_data)
+
     async def handle_chaos_command(self, data: dict):
         user_text = data.get("text", "")
         print(f"🔥 [Chaos Orchestrator] 장애 주입 명령 수신: {user_text}")
@@ -88,14 +97,30 @@ User Command: "{user_text}"
                     if "Not Found" in str(e) or "Forbidden" in str(e):
                         action_result = "성공 (Mock 시뮬레이션: K8s 권한/CRD 부재)"
 
-        # 3. Reporter Agent에게 실행 결과 전달 (Raw Data)
+        # 3. 매니페스트에서 최대 지속 시간(duration) 계산
+        max_duration = 0
+        if manifests:
+            for manifest in manifests:
+                duration_str = manifest.get("spec", {}).get("duration", "0s")
+                duration = 0
+                if duration_str.endswith("s"):
+                    try: duration = int(duration_str[:-1])
+                    except: pass
+                elif duration_str.endswith("m"):
+                    try: duration = int(duration_str[:-1]) * 60
+                    except: pass
+                if duration > max_duration:
+                    max_duration = max_duration = duration
+
+        # 4. Reporter Agent에게 실행 결과 전달 (Raw Data) - 비동기 대기 후 발송
         report_data = {
             "user_command": user_text,
             "action_result": action_result,
             "injected_manifests": manifests
         }
         
-        await redis_client.publish("agent.report", report_data)
+        # 블로킹 없이 백그라운드에서 대기 후 전송
+        asyncio.create_task(self._wait_and_report(report_data, max_duration))
 
     async def start(self):
         print("🔥 [Chaos Orchestrator] 구동 시작 (Listening to 'agent.chaos'...)")

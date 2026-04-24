@@ -47,18 +47,21 @@ class InterfaceAgent:
         """
         prompt = f"""
 다음 사용자의 입력을 분석하여 의도(Intent)를 분류해.
-오직 아래 3가지 카테고리 이름 중 하나만 출력해야 해. (다른 말은 절대 금지)
+오직 아래 4가지 카테고리 이름 중 하나만 출력해야 해. (다른 말은 절대 금지)
 
 1. "POD_STATUS" : 쿠버네티스 파드의 상태나 목록을 조회하려는 의도.
-2. "CHAOS_INJECTION" : 파드를 죽이거나, 삭제하거나, CPU 과부하, 스트레스, 카오스 장애를 주입하려는 의도.
-3. "GENERAL" : 위 두 가지에 해당하지 않는 일반적인 질문이나 대화.
+2. "CHAOS_INJECTION_READY" : 파드 죽이기, 과부하 등 카오스 장애 주입 의도이며, 타겟 대상과 '지속 시간(예: 60초)' 등의 필수 디테일이 구체적으로 명시된 경우.
+3. "CHAOS_INJECTION_ASK" : 장애 주입 의도지만, 구체적으로 몇 개의 파드에, '몇 초 동안' 부하를 줄 지 등의 디테일이 명시되지 않아서 사용자에게 구체적인 수치를 되물어봐야 하는 경우.
+4. "GENERAL" : 위 세 가지에 해당하지 않는 일반적인 질문이나 대화.
 
 사용자 입력: "{user_text}"
 분류 결과:"""
         intent = self._call_llm(prompt).strip()
-        # 안전 장치: LLM이 이상하게 대답했을 경우 파싱
+        # 안전 장치
         if "POD_STATUS" in intent: return "POD_STATUS"
-        if "CHAOS_INJECTION" in intent: return "CHAOS_INJECTION"
+        if "CHAOS_INJECTION_READY" in intent: return "CHAOS_INJECTION_READY"
+        if "CHAOS_INJECTION_ASK" in intent: return "CHAOS_INJECTION_ASK"
+        if "CHAOS_INJECTION" in intent: return "CHAOS_INJECTION_ASK" # 애매하면 무조건 물어봄
         return "GENERAL"
 
     async def handle_message(self, data: dict):
@@ -91,12 +94,17 @@ class InterfaceAgent:
                 prompt = f"다음 Kubernetes 파드 상태 데이터를 바탕으로 현재 클러스터 상태를 사용자에게 3줄 이내로 매우 전문적이고 깔끔하게 브리핑해줘:\n{summary}"
                 response_text = self._call_llm(prompt, use_sonnet=True)
                 
-        # [Skill 2] 장애 주입 스킬 (Chaos Orchestrator에게 역할 위임)
-        elif intent == "CHAOS_INJECTION":
+        # [Skill 2] 장애 주입 스킬 (디테일이 부족한 경우 되묻기)
+        elif intent == "CHAOS_INJECTION_ASK":
+            prompt = f"사용자의 명령 '{user_text}'은 장애 주입을 하려는 의도이지만, 지속 시간이나 타겟 수량 등 구체적인 디테일이 부족해. 시스템의 안전을 위해 구체적으로 몇 초 동안, 몇 개의 파드에 주입할지 물어보는 아주 정중한 질문을 1~2문장으로 작성해줘."
+            response_text = self._call_llm(prompt, use_sonnet=True)
+
+        # [Skill 3] 장애 주입 스킬 (명확한 경우 바로 실행)
+        elif intent == "CHAOS_INJECTION_READY":
             # Orchestrator가 구독 중인 채널로 명령을 토스
             await redis_client.publish("agent.chaos", {"text": user_text})
             # Interface Agent는 위임 완료 메시지만 남김
-            response_text = "🔥 Chaos Orchestrator 에이전트에게 장애 주입(Chaos Experiment) 명령을 하달했습니다. 오케스트레이터의 실행 결과를 기다려주세요."
+            response_text = "🔥 파라미터가 모두 확인되었습니다. Chaos Orchestrator에게 장애 주입(Chaos Experiment) 명령을 하달했습니다. 설정하신 시간이 경과한 후 최종 리포트가 도착할 예정입니다."
                 
         # [Skill 3] 일반 대화 및 기타 도메인 (SRE 챗봇이므로 Sonnet 사용)
         else:
