@@ -10,6 +10,7 @@ from api.server import app
 from agents.interface import InterfaceAgent
 from agents.observer import ObserverAgent
 from agents.orchestrator import ChaosOrchestratorAgent
+from agents.reporter import ReporterAgent
 from core.config import settings
 
 async def start_background_agents():
@@ -28,11 +29,15 @@ async def start_background_agents():
         # 3. Chaos Orchestrator Agent (장애 주입 수행)
         orchestrator_agent = ChaosOrchestratorAgent()
         
+        # 4. Reporter Agent (카오스 결과 분석 및 브리핑)
+        reporter_agent = ReporterAgent()
+        
         # 모든 에이전트의 start() 메서드를 병렬로 실행
         await asyncio.gather(
             interface_agent.start(),
             observer_agent.start(),
-            orchestrator_agent.start()
+            orchestrator_agent.start(),
+            reporter_agent.start()
         )
     except Exception as e:
         print(f"❌ [SYSTEM] 에이전트 구동 실패: {e}")

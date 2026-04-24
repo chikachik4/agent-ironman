@@ -31,6 +31,7 @@ Rules:
 6. If the user doesn't specify a number, use "mode": "one".
 7. Make sure each object has a unique "name" in metadata (e.g., append a random suffix or timestamp).
 8. Generate separate JSON objects in the array if multiple actions (e.g., kill AND stress) are requested.
+9. MUST add "duration": "60s" to the "spec" of every manifest unless the user specifies a different duration.
 
 User Command: "{user_text}"
 """
@@ -52,24 +53,6 @@ User Command: "{user_text}"
         except Exception as e:
             print(f"❌ [LLM JSON Parsing Error]: {e}")
             return []
-
-    def _call_llm_briefing(self, prompt: str) -> str:
-        try:
-            body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 300,
-                "messages": [{"role": "user", "content": prompt}],
-                "system": "You are the 'Chaos Orchestrator' of Aegis-Chaos. You execute Chaos Engineering tests. Speak confidently and professionally in Korean, like a senior Chaos Engineer."
-            })
-            response = self.bedrock.invoke_model(
-                body=body,
-                modelId=self.model_sonnet,
-                accept="application/json",
-                contentType="application/json"
-            )
-            return json.loads(response.get('body').read())['content'][0]['text']
-        except Exception as e:
-            return f"[Chaos LLM 오류]: {str(e)}"
 
     async def handle_chaos_command(self, data: dict):
         user_text = data.get("text", "")
@@ -105,15 +88,14 @@ User Command: "{user_text}"
                     if "Not Found" in str(e) or "Forbidden" in str(e):
                         action_result = "성공 (Mock 시뮬레이션: K8s 권한/CRD 부재)"
 
-        # 3. LLM을 통한 결과 브리핑 작성
-        prompt = f"사용자의 명령 '{user_text}'에 따라 카오스 실험들을 실행했어. 실행 결과는 '{action_result}'야. 어떤 매니페스트들이 주입되었는지 유추해서 이 상황을 대시보드 관리자에게 아주 똑똑하고 멋지게 브리핑해줘."
-        response_text = self._call_llm_briefing(prompt)
+        # 3. Reporter Agent에게 실행 결과 전달 (Raw Data)
+        report_data = {
+            "user_command": user_text,
+            "action_result": action_result,
+            "injected_manifests": manifests
+        }
         
-        # 4. 프론트엔드로 브리핑 발송
-        await redis_client.publish("agent.outbound", {
-            "sender": "Chaos Orchestrator",
-            "text": response_text
-        })
+        await redis_client.publish("agent.report", report_data)
 
     async def start(self):
         print("🔥 [Chaos Orchestrator] 구동 시작 (Listening to 'agent.chaos'...)")
