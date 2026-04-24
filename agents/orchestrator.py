@@ -39,21 +39,27 @@ class ChaosOrchestratorAgent:
         user_text = data.get("text", "")
         print(f"🔥 [Chaos Orchestrator] 장애 주입 명령 수신: {user_text}")
         
-        # 1. K8s Chaos Mesh CRD (PodChaos) 매니페스트 구성
-        # 데모용: default 네임스페이스의 무작위 파드 1개를 죽이는 장애 주입
+        # 1. K8s Chaos Mesh CRD (StressChaos) 매니페스트 구성
+        # 데모용: default 네임스페이스의 무작위 파드 1개에 60초 동안 CPU 100% 부하 주입
         manifest = {
             "apiVersion": "chaos-mesh.org/v1alpha1",
-            "kind": "PodChaos",
+            "kind": "StressChaos",
             "metadata": {
-                "name": "aegis-demo-pod-kill",
+                "name": "aegis-demo-cpu-stress",
                 "namespace": "default"
             },
             "spec": {
-                "action": "pod-kill",
                 "mode": "one",
                 "selector": {
                     "namespaces": ["default"]
-                }
+                },
+                "stressors": {
+                    "cpu": {
+                        "workers": 1,
+                        "load": 100
+                    }
+                },
+                "duration": "60s"
             }
         }
         
@@ -66,8 +72,8 @@ class ChaosOrchestratorAgent:
                     group="chaos-mesh.org",
                     version="v1alpha1",
                     namespace="default",
-                    plural="podchaos",
-                    name="aegis-demo-pod-kill"
+                    plural="stresschaos",
+                    name="aegis-demo-cpu-stress"
                 )
             except:
                 pass # 없으면 패스
@@ -77,7 +83,7 @@ class ChaosOrchestratorAgent:
                 group="chaos-mesh.org",
                 version="v1alpha1",
                 namespace="default",
-                plural="podchaos",
+                plural="stresschaos",
                 body=manifest
             )
         except Exception as e:
@@ -90,7 +96,7 @@ class ChaosOrchestratorAgent:
                 action_result = "성공 (Mock 시뮬레이션)"
 
         # 3. LLM을 통한 결과 브리핑 작성
-        prompt = f"사용자의 명령 '{user_text}'에 따라 'default 네임스페이스 파드 랜덤 킬(Pod Kill)' 카오스 실험을 실행했어. 실행 결과는 '{action_result}'야. 이 상황을 대시보드 관리자에게 멋지게 브리핑해줘."
+        prompt = f"사용자의 명령 '{user_text}'에 따라 'CPU 100% 과부하(StressChaos)' 카오스 실험을 실행했어. 실행 결과는 '{action_result}'야. 이 상황을 대시보드 관리자에게 멋지게 브리핑해줘."
         response_text = self._call_llm(prompt)
         
         # 4. 프론트엔드로 브리핑 발송
