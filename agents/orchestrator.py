@@ -37,7 +37,7 @@ Rules:
 2. apiVersion must be "chaos-mesh.org/v1alpha1".
 3. If killing pods, use kind "PodChaos" and action "pod-kill".
 4. If causing CPU stress/load, use kind "StressChaos", and stressors: {{"cpu": {{"workers": 1, "load": 100}}}}.
-5. If the user specifies a specific number of pods (e.g., "2개", "3 pods"), use "mode": "fixed" and "value": "<number>".
+5. If the user specifies a specific number of pods (e.g., "2개", "3 pods"), use "mode": "fixed" and "value": "<number>" (IMPORTANT: The 'value' field MUST be a STRING like "2" or "4", NEVER an integer like 2 or 4).
 6. If the user doesn't specify a number, use "mode": "one".
 7. Make sure each object has a unique "name" in metadata (e.g., append a random suffix or timestamp).
 8. Generate separate JSON objects in the array if multiple actions (e.g., kill AND stress) are requested.
@@ -88,8 +88,10 @@ User Command: "{user_text}"
         
         if not manifests:
             action_result = "실패 (LLM 매니페스트 생성 오류 또는 해석 불가)"
+            success = False
         else:
             action_result = f"총 {len(manifests)}개의 카오스 실험 생성 성공"
+            success = True
             # 2. 클러스터에 장애 객체 순차 생성
             for manifest in manifests:
                 # 타임스탬프를 강제로 덮어씌워 이름 충돌 완벽 방지
@@ -104,6 +106,10 @@ User Command: "{user_text}"
                 if "namespaces" not in manifest["spec"]["selector"]:
                     manifest["spec"]["selector"]["namespaces"] = [manifest["metadata"]["namespace"]]
                 
+                # 강제 형변환 (AI가 말을 안 듣고 숫자를 반환했을 경우 방어)
+                if "value" in manifest.get("spec", {}):
+                    manifest["spec"]["value"] = str(manifest["spec"]["value"])
+                
                 kind = manifest.get("kind", "podchaos").lower()
                 
                 try:
@@ -117,12 +123,15 @@ User Command: "{user_text}"
                     print(f"✅ [Orchestrator] {kind} ({manifest['metadata']['name']}) 주입 성공")
                 except Exception as e:
                     print(f"❌ [Chaos Error] {kind} 생성 실패: {e}")
+                    success = False
+                    action_result = f"실패 (K8s 거부 오류: {str(e)})"
                     if "Not Found" in str(e) or "Forbidden" in str(e):
                         action_result = "성공 (Mock 시뮬레이션: K8s 권한/CRD 부재)"
+                        success = True
 
         # 3. 매니페스트에서 최대 지속 시간(duration) 계산
         max_duration = 0
-        if manifests:
+        if success and manifests:
             for manifest in manifests:
                 duration_str = manifest.get("spec", {}).get("duration", "0s")
                 duration = 0
