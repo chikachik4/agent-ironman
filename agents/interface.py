@@ -16,11 +16,12 @@ class InterfaceAgent:
             service_name='bedrock-runtime',
             region_name=settings.AWS_REGION
         )
-        # Interface Agent는 빠른 응답성을 위해 Claude 3.5 Haiku 사용
-        self.model_id = settings.LLM_MODEL_EXECUTION 
+        self.model_haiku = settings.LLM_MODEL_ROUTING
+        self.model_sonnet = settings.LLM_MODEL_EXPERT
         
-    def _call_llm(self, prompt: str) -> str:
+    def _call_llm(self, prompt: str, use_sonnet: bool = False) -> str:
         """Bedrock Claude 모델을 호출하여 응답을 생성합니다."""
+        model_id = self.model_sonnet if use_sonnet else self.model_haiku
         try:
             body = json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
@@ -31,7 +32,7 @@ class InterfaceAgent:
             
             response = self.bedrock.invoke_model(
                 body=body,
-                modelId=self.model_id,
+                modelId=model_id,
                 accept="application/json",
                 contentType="application/json"
             )
@@ -86,9 +87,9 @@ class InterfaceAgent:
                 for p in pods:
                     summary += f"- {p['name']} (상태: {p['status']}, 재시작: {p['restarts']})\n"
                 
-                # LLM을 통해 이쁘게 요약
+                # LLM을 통해 이쁘게 요약 (고급 분석이므로 Sonnet 사용)
                 prompt = f"다음 Kubernetes 파드 상태 데이터를 바탕으로 현재 클러스터 상태를 사용자에게 3줄 이내로 매우 전문적이고 깔끔하게 브리핑해줘:\n{summary}"
-                response_text = self._call_llm(prompt)
+                response_text = self._call_llm(prompt, use_sonnet=True)
                 
         # [Skill 2] 장애 주입 스킬 (Chaos Orchestrator에게 역할 위임)
         elif intent == "CHAOS_INJECTION":
@@ -97,10 +98,10 @@ class InterfaceAgent:
             # Interface Agent는 위임 완료 메시지만 남김
             response_text = "🔥 Chaos Orchestrator 에이전트에게 장애 주입(Chaos Experiment) 명령을 하달했습니다. 오케스트레이터의 실행 결과를 기다려주세요."
                 
-        # [Skill 3] 일반 대화 및 기타 도메인
+        # [Skill 3] 일반 대화 및 기타 도메인 (SRE 챗봇이므로 Sonnet 사용)
         else:
             prompt = f"사용자 명령: '{user_text}'. Aegis-Chaos 시스템의 Interface 에이전트로서 어떻게 조치할지 짧게 대답해줘."
-            response_text = self._call_llm(prompt)
+            response_text = self._call_llm(prompt, use_sonnet=True)
 
         # 최종 분석 결과 발송
         await redis_client.publish("agent.outbound", {

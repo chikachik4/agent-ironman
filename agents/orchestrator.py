@@ -16,9 +16,44 @@ class ChaosOrchestratorAgent:
             service_name='bedrock-runtime',
             region_name=settings.AWS_REGION
         )
-        self.model_id = settings.LLM_MODEL_EXECUTION
+        self.model_sonnet = settings.LLM_MODEL_EXPERT
 
-    def _call_llm(self, prompt: str) -> str:
+    def _generate_manifests_via_llm(self, user_text: str) -> list:
+        """Sonnet 3.5를 활용하여 자연어 명령을 Chaos Mesh JSON 배열로 변환"""
+        prompt = f"""
+You are a Kubernetes Chaos Engineering expert. Translate the user's natural language command into a JSON array of Chaos Mesh Custom Resource manifests.
+Rules:
+1. ONLY return a valid JSON array. Do not wrap in markdown (e.g. no ```json). No explanations.
+2. apiVersion must be "chaos-mesh.org/v1alpha1".
+3. If killing pods, use kind "PodChaos" and action "pod-kill".
+4. If causing CPU stress/load, use kind "StressChaos", and stressors: {{"cpu": {{"workers": 1, "load": 100}}}}.
+5. If the user specifies a specific number of pods (e.g., "2개", "3 pods"), use "mode": "fixed" and "value": "<number>".
+6. If the user doesn't specify a number, use "mode": "one".
+7. Make sure each object has a unique "name" in metadata (e.g., append a random suffix or timestamp).
+8. Generate separate JSON objects in the array if multiple actions (e.g., kill AND stress) are requested.
+
+User Command: "{user_text}"
+"""
+        try:
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 1500,
+                "messages": [{"role": "user", "content": prompt}],
+            })
+            response = self.bedrock.invoke_model(body=body, modelId=self.model_sonnet, accept="application/json", contentType="application/json")
+            result = json.loads(response.get('body').read())['content'][0]['text'].strip()
+            
+            if "```json" in result:
+                result = result.split("```json")[1].split("```")[0].strip()
+            elif "```" in result:
+                result = result.split("```")[1].strip()
+                
+            return json.loads(result)
+        except Exception as e:
+            print(f"❌ [LLM JSON Parsing Error]: {e}")
+            return []
+
+    def _call_llm_briefing(self, prompt: str) -> str:
         try:
             body = json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
@@ -28,7 +63,7 @@ class ChaosOrchestratorAgent:
             })
             response = self.bedrock.invoke_model(
                 body=body,
-                modelId=self.model_id,
+                modelId=self.model_sonnet,
                 accept="application/json",
                 contentType="application/json"
             )
@@ -40,58 +75,39 @@ class ChaosOrchestratorAgent:
         user_text = data.get("text", "")
         print(f"🔥 [Chaos Orchestrator] 장애 주입 명령 수신: {user_text}")
         
-        # 1. 사용자의 명령어(의도)에 따라 주입할 카오스 종류 결정
-        if "cpu" in user_text.lower() or "과부하" in user_text or "스트레스" in user_text:
-            chaos_type = "StressChaos"
-            chaos_name = f"aegis-demo-cpu-stress-{int(time.time())}"
-            manifest = {
-                "apiVersion": "chaos-mesh.org/v1alpha1",
-                "kind": "StressChaos",
-                "metadata": {"name": chaos_name, "namespace": "default"},
-                "spec": {
-                    "mode": "one",
-                    "selector": {"namespaces": ["default"]},
-                    "stressors": {"cpu": {"workers": 1, "load": 100}},
-                    "duration": "60s"
-                }
-            }
-        else:
-            chaos_type = "PodChaos"
-            chaos_name = f"aegis-demo-pod-kill-{int(time.time())}"
-            manifest = {
-                "apiVersion": "chaos-mesh.org/v1alpha1",
-                "kind": "PodChaos",
-                "metadata": {"name": chaos_name, "namespace": "default"},
-                "spec": {
-                    "action": "pod-kill",
-                    "mode": "one",
-                    "selector": {"namespaces": ["default"]}
-                }
-            }
+        # 1. LLM(Sonnet 3.5)을 통한 카오스 매니페스트 배열 동적 생성
+        manifests = self._generate_manifests_via_llm(user_text)
         
-        # 2. 클러스터에 장애 객체 생성
-        action_result = "성공"
-        try:
-            # 장애 객체 생성
-            k8s_client.custom_obj.create_namespaced_custom_object(
-                group="chaos-mesh.org",
-                version="v1alpha1",
-                namespace="default",
-                plural=chaos_type.lower(),
-                body=manifest
-            )
-        except Exception as e:
-            action_result = f"실패 (사유: {str(e)})"
-            print(f"[Chaos Error] CRD 생성 실패: {e}")
-            
-            # 테스트 환경에서 권한/CRD 부재 시 데모(Mock) 동작 처리
-            if "Not Found" in str(e) or "Forbidden" in str(e):
-                print("🔥 [SYSTEM] Chaos Mesh CRD가 설치되지 않았거나 권한이 없습니다. 가상 장애 주입으로 시뮬레이션합니다.")
-                action_result = "성공 (Mock 시뮬레이션)"
+        if not manifests:
+            action_result = "실패 (LLM 매니페스트 생성 오류 또는 해석 불가)"
+        else:
+            action_result = f"총 {len(manifests)}개의 카오스 실험 생성 성공"
+            # 2. 클러스터에 장애 객체 순차 생성
+            for manifest in manifests:
+                # 타임스탬프를 강제로 덮어씌워 이름 충돌 완벽 방지
+                original_name = manifest["metadata"].get("name", "chaos")
+                manifest["metadata"]["name"] = f"{original_name}-{int(time.time())}"
+                manifest["metadata"]["namespace"] = "default"
+                
+                kind = manifest.get("kind", "podchaos").lower()
+                
+                try:
+                    k8s_client.custom_obj.create_namespaced_custom_object(
+                        group="chaos-mesh.org",
+                        version="v1alpha1",
+                        namespace="default",
+                        plural=kind,
+                        body=manifest
+                    )
+                    print(f"✅ [Orchestrator] {kind} ({manifest['metadata']['name']}) 주입 성공")
+                except Exception as e:
+                    print(f"❌ [Chaos Error] {kind} 생성 실패: {e}")
+                    if "Not Found" in str(e) or "Forbidden" in str(e):
+                        action_result = "성공 (Mock 시뮬레이션: K8s 권한/CRD 부재)"
 
         # 3. LLM을 통한 결과 브리핑 작성
-        prompt = f"사용자의 명령 '{user_text}'에 따라 '{chaos_type}' 카오스 실험을 실행했어. 실행 결과는 '{action_result}'야. 이 상황을 대시보드 관리자에게 멋지게 브리핑해줘."
-        response_text = self._call_llm(prompt)
+        prompt = f"사용자의 명령 '{user_text}'에 따라 카오스 실험들을 실행했어. 실행 결과는 '{action_result}'야. 어떤 매니페스트들이 주입되었는지 유추해서 이 상황을 대시보드 관리자에게 아주 똑똑하고 멋지게 브리핑해줘."
+        response_text = self._call_llm_briefing(prompt)
         
         # 4. 프론트엔드로 브리핑 발송
         await redis_client.publish("agent.outbound", {

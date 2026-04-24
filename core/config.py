@@ -21,9 +21,10 @@ class Settings(BaseSettings):
     OPENSEARCH_URL: str = os.getenv("OPENSEARCH_URL", "https://localhost:9200")
     
     # AWS Bedrock Config
+    # AWS Bedrock Config
     AWS_REGION: str = os.getenv("AWS_REGION", "ap-northeast-2")
-    LLM_MODEL_ANALYST: str = "anthropic.claude-3-5-sonnet-20240620-v1:0"
-    LLM_MODEL_EXECUTION: str = "anthropic.claude-3-haiku-20240307-v1:0"
+    LLM_MODEL_ROUTING: str = "anthropic.claude-3-haiku-20240307-v1:0"
+    LLM_MODEL_EXPERT: str = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
