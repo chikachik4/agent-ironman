@@ -15,7 +15,7 @@ class ObserverAgent:
             service_name='bedrock-runtime',
             region_name=settings.AWS_REGION
         )
-        self.model_id = settings.LLM_MODEL_EXECUTION 
+        self.model_id = settings.LLM_MODEL_ROUTING 
 
     def _call_llm(self, prompt: str) -> str:
         """AWS Bedrock Claude 모델 호출"""
