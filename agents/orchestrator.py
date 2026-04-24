@@ -70,6 +70,11 @@ User Command: "{user_text}"
         # 1. LLM(Sonnet 3.5)을 통한 카오스 매니페스트 배열 동적 생성
         manifests = self._generate_manifests_via_llm(user_text)
         
+        # 터미널에 생성된 매니페스트를 이쁘게(indent) 로깅합니다.
+        print("\n================ [생성된 카오스 매니페스트] ================")
+        print(json.dumps(manifests, ensure_ascii=False, indent=2))
+        print("============================================================\n")
+        
         if not manifests:
             action_result = "실패 (LLM 매니페스트 생성 오류 또는 해석 불가)"
         else:
