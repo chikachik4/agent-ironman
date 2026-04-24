@@ -46,19 +46,9 @@ class ObserverAgent:
             query = "sum(rate(container_cpu_usage_seconds_total[1m])) by (pod)"
             data = await prom_client.query_metric(query)
             
-            # 실제 데이터가 있거나 Mock 데이터가 있을 경우 분석
+            # 실제 수집된 데이터가 있을 경우에만 분석 진행 (Mock 가상 데이터 제외)
             results = data.get("data", {}).get("result", [])
-            mock_data = data.get("mock_data", [])
-            
-            # [수정] 프로메테우스 통신은 성공했으나 수집된 지표가 없는 경우에도 테스트를 위해 가상 데이터 강제 주입
-            if data.get("status") == "success" and not results:
-                print("👁️ [Observer Agent] Prometheus 통신은 성공했으나 데이터가 없어 가상(Mock) 데이터로 분석을 시도합니다.")
-                target_data = [
-                    {"metric": {"pod": "payment-api-7f8a"}, "value": [1616161616, "0.85"]},
-                    {"metric": {"pod": "database-statefulset-0"}, "value": [1616161616, "0.92"]}
-                ]
-            else:
-                target_data = results if results else mock_data
+            target_data = results
             
             if target_data:
                 print("👁️ [Observer Agent] 이상 징후 탐지! LLM 분석 요청 중...")
