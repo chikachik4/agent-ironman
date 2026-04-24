@@ -35,9 +35,14 @@
 1. **Remote K8s Control:** 에이전트는 VPC 3에서 구동되지만, VPC 1의 K8s 클러스터를 리모트로 제어한다.
 2. **Resource Naming:** 모든 테스트 리소스는 `test-` 프리픽스를 사용하거나 명세서에 정의된 이름을 따른다.
 3. **IAM:** Bedrock 호출을 위해 인스턴스에 부여된 IAM Role 또는 환경 변수의 Access Key를 사용한다.
+4. **Prometheus K3s Limitations:** K3s 기본 환경에서는 cAdvisor 파드 레벨 메트릭이 누락될 수 있으므로, 테스트 환경의 `Observer Agent`는 노드 전체의 컨테이너 지표(`container_cpu_usage_seconds_total{id="/"}`)를 감시하고 수집 주기에 맞춰 `rate[2m]` 이상을 사용한다.
 
 ## 6. Execution Flow (Test)
 1. Local IDE (Vibe Coding) -> Git Push
 2. VPC 3 -> `git pull`
 3. VPC 3 -> `uv sync` (의존성 동기화)
-4. VPC 3 -> `python -m agents.<agent_name>` 실행
+4. VPC 3 -> `uv run python main.py` (비동기 에이전트 4개 동시 구동)
+   - `Interface Agent`: 명령 수신 및 문맥 기반 의도 파악 (Ask & Ready)
+   - `Chaos Orchestrator`: 카오스 주입 후 Duration 만큼 비동기 대기(Sleep)
+   - `Observer Agent`: 15초 단위 PromQL 스캐닝 (이상 탐지 시 즉시 알림)
+   - `Reporter Agent`: Orchestrator 대기 종료 후 사후 브리핑 생성

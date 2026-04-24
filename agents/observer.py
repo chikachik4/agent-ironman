@@ -42,8 +42,8 @@ class ObserverAgent:
             await asyncio.sleep(15)  # 빠른 테스트를 위해 15초로 설정
             print("👁️ [Observer Agent] Prometheus 메트릭 스캐닝 중...")
             
-            # PromQL: 조금 전 터미널에서 존재가 완벽히 증명된 cAdvisor의 노드 전체 CPU 메트릭(id="/") 사용
-            query = 'sum(rate(container_cpu_usage_seconds_total{id="/"}[1m]))'
+            # PromQL: K3s 프로메테우스의 기본 수집 주기가 1분이므로 rate() 계산을 위해 최소 2분의 범위를 줌 [2m]
+            query = 'sum(rate(container_cpu_usage_seconds_total{id="/"}[2m]))'
             data = await prom_client.query_metric(query)
             
             results = data.get("data", {}).get("result", [])
