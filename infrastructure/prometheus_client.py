@@ -28,9 +28,13 @@ class PrometheusClient:
         # [동적 노드 IP 할당] localhost로 설정되어 있지만 실제 운영 환경인 경우, K8s 노드의 실제 IP로 치환
         if "localhost" in prom_url and settings.ENVIRONMENT != "test":
             from infrastructure.k8s_client import k8s_client
+            print(f"[Prometheus] 동적 IP 탐색 시도 (cluster: {cluster_id})")
             node_ip = k8s_client.get_worker_node_ip(cluster_id)
             if node_ip:
                 prom_url = prom_url.replace("localhost", node_ip)
+                print(f"[Prometheus] 동적 IP 치환 성공: {prom_url}")
+            else:
+                print(f"[Prometheus Error] 워커 노드 IP를 찾을 수 없어 기본값({prom_url})을 사용합니다.")
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
