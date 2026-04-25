@@ -24,7 +24,7 @@ def get_pod_status(namespace: str = "default", cluster_id: str = "vpc1") -> str:
         파드 목록 및 상태 JSON 문자열
     """
     # TODO: k8s_client에 cluster_id를 전달하는 로직 추가 필요 (현재는 기본 컨텍스트 사용)
-    pods = k8s_client.get_pods(namespace)
+    pods = k8s_client.get_pods(cluster_id=cluster_id, namespace=namespace)
     return json.dumps(pods, ensure_ascii=False, indent=2)
 
 
@@ -41,8 +41,8 @@ def get_cluster_context(cluster_id: str = "vpc1") -> str:
         네임스페이스 목록 및 파드+라벨 요약 JSON 문자열
     """
     # TODO: k8s_client에 cluster_id를 전달하는 로직 추가 필요
-    namespaces = k8s_client.get_namespaces()
-    pods_summary = k8s_client.get_all_pods_summary()
+    namespaces = k8s_client.get_namespaces(cluster_id=cluster_id)
+    pods_summary = k8s_client.get_all_pods_summary(cluster_id=cluster_id)
     
     cluster_name = settings.CLUSTERS[cluster_id].name if cluster_id in settings.CLUSTERS else "Unknown Cluster"
     

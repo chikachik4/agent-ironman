@@ -3,17 +3,12 @@ from core.config import settings
 
 class MultiClusterK8sClient:
     def __init__(self):
+        self.clients = {}  # { cluster_id: {"core": CoreV1Api, "apps": AppsV1Api, "custom": CustomObjectsApi} }
         self._initialize_config()
-        self.core_v1 = client.CoreV1Api()
-        self.apps_v1 = client.AppsV1Api()
-        # Chaos Mesh CRD 제어를 위한 CustomObjectsApi
-        self.custom_obj = client.CustomObjectsApi()
         
     def _initialize_config(self):
         """
-        환경에 따라 Kubernetes 인증을 설정합니다.
-        Sandbox(test): 로컬 ~/.kube/config 파일 사용 (VPC1 K3s 타겟)
-        Production(prod): 시작 시 aws eks 명령어로 kubeconfig 갱신 후 로딩
+        환경에 따라 Kubernetes 인증을 설정하고 각 클러스터별 API 클라이언트를 생성합니다.
         """
         import subprocess
         
@@ -37,20 +32,37 @@ class MultiClusterK8sClient:
                 except FileNotFoundError:
                     print("❌ [ERROR] AWS CLI가 설치되어 있지 않습니다.")
 
-            # 로컬 kubeconfig 로딩 (위에서 EKS로 컨텍스트가 변경되었으므로 EKS 타겟팅됨)
+            # 우선 로컬 kubeconfig를 로딩 (AWS EKS 갱신 내역 포함)
             config.load_kube_config()
-            print(f"[SYSTEM] K8s 타겟 설정 완료 (Endpoint: {client.Configuration.get_default_copy().host})")
             
-            # TEST 환경에서는 명세서에 정의된 VPC1 K3s 주소로 강제 오버라이딩
-            if settings.ENVIRONMENT == "test" and "vpc1" in settings.CLUSTERS:
-                configuration = client.Configuration.get_default_copy()
-                configuration.host = settings.CLUSTERS["vpc1"].api_url
-                configuration.verify_ssl = False  # 사설 IP/K3s 통신을 위한 인증서 검증 무시
-                client.Configuration.set_default(configuration)
+            # 클러스터별 클라이언트 객체 분리 생성
+            for cid, cluster_cfg in settings.CLUSTERS.items():
+                if not cluster_cfg.is_active:
+                    continue
+                    
+                cfg = client.Configuration.get_default_copy()
                 
-            print(f"[SYSTEM] K8s 타겟 설정 완료 (Endpoint: {client.Configuration.get_default_copy().host})")
+                # VPC1 (EKS)의 경우 위에서 load_kube_config로 설정된 현재 컨텍스트를 그대로 사용
+                # 추후 VPC2 (On-Prem)의 경우 API URL과 토큰을 직접 덮어씌우는 방식으로 확장 가능
+                if cid == "vpc2":
+                    cfg.host = cluster_cfg.api_url
+                    cfg.verify_ssl = False  # 임시로 사설망 통신 시 검증 무시
+                    # TODO: VPC2 접근을 위한 ServiceAccount Token 연동 추가 필요
+                elif settings.ENVIRONMENT == "test" and cid == "vpc1":
+                    # 테스트 샌드박스의 K3s 오버라이딩
+                    cfg.host = cluster_cfg.api_url
+                    cfg.verify_ssl = False
+                
+                api_client = client.ApiClient(configuration=cfg)
+                self.clients[cid] = {
+                    "core": client.CoreV1Api(api_client=api_client),
+                    "apps": client.AppsV1Api(api_client=api_client),
+                    "custom": client.CustomObjectsApi(api_client=api_client)
+                }
+                print(f"[SYSTEM] K8s 클라이언트 초기화 완료 ({cid} -> {cfg.host})")
+                
         except Exception as e:
-            print(f"[SYSTEM] kubeconfig 로딩 실패: {e}. In-cluster config를 시도합니다.")
+            print(f"[SYSTEM] Kubeconfig 로딩 실패: {e}. In-cluster config를 시도합니다.")
             try:
                 # AWS ECS Fargate 등 컨테이너 내부 환경인 경우
                 config.load_incluster_config()
@@ -58,10 +70,14 @@ class MultiClusterK8sClient:
             except Exception as inner_e:
                 print(f"[ERROR] K8s 인증 정보를 찾을 수 없습니다: {inner_e}")
 
-    def get_pods(self, namespace: str = "default") -> list:
-        """지정된 네임스페이스의 파드 상태를 조회합니다."""
+    def get_pods(self, cluster_id: str = "vpc1", namespace: str = "default") -> list:
+        """지정된 클러스터와 네임스페이스의 파드 상태를 조회합니다."""
+        if cluster_id not in self.clients:
+            return []
+            
         try:
-            pods = self.core_v1.list_namespaced_pod(namespace)
+            core_api = self.clients[cluster_id]["core"]
+            pods = core_api.list_namespaced_pod(namespace)
             return [
                 {
                     "name": pod.metadata.name,
@@ -82,19 +98,27 @@ class MultiClusterK8sClient:
                 {"name": "database-statefulset-0", "status": "Pending", "restarts": 0},
             ]
 
-    def get_namespaces(self) -> list:
+    def get_namespaces(self, cluster_id: str = "vpc1") -> list:
         """클러스터의 모든 네임스페이스를 반환합니다."""
+        if cluster_id not in self.clients:
+            return ["default"]
+            
         try:
-            ns_list = self.core_v1.list_namespace()
+            core_api = self.clients[cluster_id]["core"]
+            ns_list = core_api.list_namespace()
             return [ns.metadata.name for ns in ns_list.items]
         except Exception as e:
             print(f"[K8s Error] get_namespaces: {e}")
             return ["default"]
 
-    def get_all_pods_summary(self) -> list:
-        """AI 컨텍스트 제공을 위해 클러스터 내 핵심 파드 정보를 (네임스페이스, 이름, 라벨) 반환합니다."""
+    def get_all_pods_summary(self, cluster_id: str = "vpc1") -> list:
+        """AI 컨텍스트 제공을 위해 클러스터 내 핵심 파드 정보를 반환합니다."""
+        if cluster_id not in self.clients:
+            return []
+            
         try:
-            pods = self.core_v1.list_pod_for_all_namespaces()
+            core_api = self.clients[cluster_id]["core"]
+            pods = core_api.list_pod_for_all_namespaces()
             summary = []
             for pod in pods.items:
                 # kube-system 등 시스템 파드는 너무 많으므로 제외 가능 (여기서는 단순화를 위해 모두 포함)
@@ -109,10 +133,14 @@ class MultiClusterK8sClient:
             print(f"[K8s Error] get_all_pods_summary: {e}")
             return [{"namespace": "default", "name": "mock-pod", "labels": {"app": "mock"}}]
 
-    def get_deployments(self, namespace: str = "default") -> list:
+    def get_deployments(self, cluster_id: str = "vpc1", namespace: str = "default") -> list:
         """지정된 네임스페이스의 디플로이먼트 상태를 조회합니다."""
+        if cluster_id not in self.clients:
+            return []
+            
         try:
-            deps = self.apps_v1.list_namespaced_deployment(namespace)
+            apps_api = self.clients[cluster_id]["apps"]
+            deps = apps_api.list_namespaced_deployment(namespace)
             return [
                 {
                     "name": dep.metadata.name,
@@ -126,14 +154,18 @@ class MultiClusterK8sClient:
             print(f"[K8s Error] get_deployments: {e}")
             return []
 
-    def get_topology(self, namespace: str = "default") -> dict:
+    def get_topology(self, cluster_id: str = "vpc1", namespace: str = "default") -> dict:
         """클러스터의 Service와 Pod를 조회하여 토폴로지(React Flow 형식)를 생성합니다."""
         nodes = []
         edges = []
         
+        if cluster_id not in self.clients:
+            return {"nodes": nodes, "edges": edges}
+            
         try:
-            services = self.core_v1.list_namespaced_service(namespace)
-            pods = self.core_v1.list_namespaced_pod(namespace)
+            core_api = self.clients[cluster_id]["core"]
+            services = core_api.list_namespaced_service(namespace)
+            pods = core_api.list_namespaced_pod(namespace)
             
             # Y 좌표 계산을 위한 층별 배치 (단순화)
             svc_y = 50
