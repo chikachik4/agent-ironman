@@ -250,14 +250,20 @@ class MultiClusterK8sClient:
         try:
             core_api = self.clients[cluster_id]["core"]
             nodes = core_api.list_node()
+            print(f"[Debug] 노드 목록 조회 완료 (총 {len(nodes.items)}개)")
+            
             for node in nodes.items:
                 # 노드가 Ready 상태인지 확인
                 is_ready = any(cond.type == "Ready" and cond.status == "True" for cond in node.status.conditions)
+                print(f"[Debug] Node: {node.metadata.name}, Ready: {is_ready}")
+                
                 if is_ready:
                     for addr in node.status.addresses:
+                        print(f"  - Addr Type: {addr.type}, Addr: {addr.address}")
                         # InternalIP를 우선적으로 반환
                         if addr.type == "InternalIP":
                             return addr.address
+            print("[Debug] 조건을 만족하는 노드를 찾지 못했습니다.")
         except Exception as e:
             print(f"[K8s Error] get_worker_node_ip: {e}")
             
