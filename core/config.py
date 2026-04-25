@@ -46,14 +46,16 @@ class Settings(BaseSettings):
         else:
             # Production Environment (EKS + On-prem K8s)
             eks_endpoint = os.getenv("EKS_CLUSTER_ENDPOINT", "https://eks.amazonaws.com")
+            eks_name = os.getenv("EKS_CLUSTER_NAME", "bookjjeok-test-eks-cluster")
             vpc1_prom = os.getenv("VPC1_PROMETHEUS_IP", "localhost")
+            vpc1_context = os.getenv("VPC1_KUBE_CONTEXT", "") # e.g. arn:aws:eks:ap-northeast-2:...
             
             vpc2_k8s = os.getenv("VPC2_K8S_ENDPOINT", "https://onprem.local:6443")
             vpc2_prom = os.getenv("VPC2_PROMETHEUS_IP", "localhost")
             
             return {
                 "vpc1": ClusterConfig(
-                    name=f"{self.PROJECT_PREFIX}prod-eks",
+                    name=eks_name,
                     api_url=eks_endpoint,
                     prometheus_url=f"http://{vpc1_prom}:30090"
                 ),

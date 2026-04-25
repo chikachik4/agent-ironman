@@ -13,14 +13,35 @@ class MultiClusterK8sClient:
         """
         환경에 따라 Kubernetes 인증을 설정합니다.
         Sandbox(test): 로컬 ~/.kube/config 파일 사용 (VPC1 K3s 타겟)
-        Production(prod): 로컬 kubeconfig 또는 Fargate In-Cluster Config 연동
+        Production(prod): 시작 시 aws eks 명령어로 kubeconfig 갱신 후 로딩
         """
+        import subprocess
+        
         try:
-            # 우선 로컬 kubeconfig 로딩 시도 (샌드박스/로컬 개발용)
+            if settings.ENVIRONMENT != "test":
+                eks_name = os.getenv("EKS_CLUSTER_NAME", "bookjjeok-test-eks-cluster")
+                aws_region = settings.AWS_REGION
+                
+                print(f"[SYSTEM] EKS 클러스터({eks_name}) Kubeconfig 연동을 시도합니다...")
+                try:
+                    # EKS kubeconfig 업데이트 (자동으로 현재 컨텍스트를 EKS로 변경함)
+                    result = subprocess.run(
+                        ["aws", "eks", "update-kubeconfig", "--name", eks_name, "--region", aws_region],
+                        check=True,
+                        capture_output=True,
+                        text=True
+                    )
+                    print(f"✅ [SYSTEM] Kubeconfig 갱신 성공: {result.stdout.strip()}")
+                except subprocess.CalledProcessError as e:
+                    print(f"❌ [ERROR] Kubeconfig 갱신 실패: {e.stderr}")
+                except FileNotFoundError:
+                    print("❌ [ERROR] AWS CLI가 설치되어 있지 않습니다.")
+
+            # 로컬 kubeconfig 로딩 (위에서 EKS로 컨텍스트가 변경되었으므로 EKS 타겟팅됨)
             config.load_kube_config()
+            print(f"[SYSTEM] K8s 타겟 설정 완료 (Endpoint: {client.Configuration.get_default_copy().host})")
             
-            # [수정] TEST 환경에서는 로컬 kubeconfig의 현재 컨텍스트(EKS 등)를 무시하고
-            # 명세서에 정의된 VPC1 K3s 주소로 강제 오버라이딩합니다.
+            # TEST 환경에서는 명세서에 정의된 VPC1 K3s 주소로 강제 오버라이딩
             if settings.ENVIRONMENT == "test" and "vpc1" in settings.CLUSTERS:
                 configuration = client.Configuration.get_default_copy()
                 configuration.host = settings.CLUSTERS["vpc1"].api_url
