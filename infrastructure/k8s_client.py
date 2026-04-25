@@ -105,5 +105,89 @@ class MultiClusterK8sClient:
             print(f"[K8s Error] get_deployments: {e}")
             return []
 
+    def get_topology(self, namespace: str = "default") -> dict:
+        """클러스터의 Service와 Pod를 조회하여 토폴로지(React Flow 형식)를 생성합니다."""
+        nodes = []
+        edges = []
+        
+        try:
+            services = self.core_v1.list_namespaced_service(namespace)
+            pods = self.core_v1.list_namespaced_pod(namespace)
+            
+            # Y 좌표 계산을 위한 층별 배치 (단순화)
+            svc_y = 50
+            pod_y = 200
+            svc_x_offset = 100
+            pod_x_offset = 50
+
+            # 1. Service 노드 생성
+            for idx, svc in enumerate(services.items):
+                svc_name = svc.metadata.name
+                node_id = f"svc-{svc_name}"
+                nodes.append({
+                    "id": node_id,
+                    "type": "input",
+                    "position": {"x": svc_x_offset + (idx * 250), "y": svc_y},
+                    "data": {"label": f"{svc_name}\n(Service)"},
+                    "style": {
+                        "background": "#1e293b",
+                        "color": "#fff",
+                        "border": "2px solid #3b82f6",
+                        "borderRadius": "8px",
+                        "padding": "10px"
+                    }
+                })
+
+            # 2. Pod 노드 및 Edge 생성
+            for p_idx, pod in enumerate(pods.items):
+                pod_name = pod.metadata.name
+                pod_id = f"pod-{pod_name}"
+                pod_labels = pod.metadata.labels or {}
+                
+                # 상태에 따른 색상 결정
+                status = pod.status.phase
+                border_color = "#10b981" # Green (Running)
+                if status == "Pending":
+                    border_color = "#f59e0b" # Yellow
+                elif status in ["Failed", "Unknown"]:
+                    border_color = "#ef4444" # Red
+                
+                nodes.append({
+                    "id": pod_id,
+                    "type": "output",
+                    "position": {"x": pod_x_offset + (p_idx * 200), "y": pod_y},
+                    "data": {"label": f"{pod_name}\n({status})"},
+                    "style": {
+                        "background": "#1e293b",
+                        "color": "#fff",
+                        "border": f"1px solid {border_color}",
+                        "borderRadius": "8px",
+                        "padding": "8px"
+                    }
+                })
+
+                # 매칭되는 Service 찾기 (selector 기준)
+                for svc in services.items:
+                    selector = svc.spec.selector
+                    if not selector:
+                        continue
+                    
+                    # Service의 selector의 모든 key-value가 Pod의 라벨에 포함되어 있는지 확인
+                    is_match = all(pod_labels.get(k) == v for k, v in selector.items())
+                    if is_match:
+                        svc_node_id = f"svc-{svc.metadata.name}"
+                        edges.append({
+                            "id": f"e-{svc_node_id}-{pod_id}",
+                            "source": svc_node_id,
+                            "target": pod_id,
+                            "animated": True,
+                            "style": {"stroke": border_color}
+                        })
+                        
+        except Exception as e:
+            print(f"[K8s Error] get_topology: {e}")
+            
+        return {"nodes": nodes, "edges": edges}
+
 # 싱글톤 인스턴스 (에이전트들이 공통으로 사용)
 k8s_client = MultiClusterK8sClient()

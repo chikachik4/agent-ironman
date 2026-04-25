@@ -25,6 +25,14 @@ async def get_status():
         "clusters": {name: cfg.name for name, cfg in settings.CLUSTERS.items()}
     }
 
+@app.get("/api/topology/{cluster_id}")
+async def get_topology(cluster_id: str):
+    # TODO: 추후 cluster_id에 따른 k8s context 분리 (현재는 vpc1만 연동됨)
+    from infrastructure.k8s_client import k8s_client
+    if cluster_id != "vpc1":
+        return {"nodes": [], "edges": []}
+    return k8s_client.get_topology(namespace="default")
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
