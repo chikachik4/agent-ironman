@@ -11,6 +11,7 @@ function App() {
   const [status, setStatus] = useState(null);
   const [activeCluster, setActiveCluster] = useState('vpc1');
   const [isChatOpen, setIsChatOpen] = useState(true);
+  const [toastMessage, setToastMessage] = useState(null);
   const chatEndRef = useRef(null);
 
   const messages = messagesByCluster[activeCluster] || [];
@@ -23,6 +24,7 @@ function App() {
 
     let socket;
     let reconnectTimer;
+    let toastTimer;
     
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -39,6 +41,15 @@ function App() {
       
       socket.onmessage = (event) => {
         const msg = JSON.parse(event.data);
+
+        // 시스템 연결 메시지 등은 팝업(Toast)으로 처리
+        if (msg.sender === "system") {
+            setToastMessage(msg.text);
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => setToastMessage(null), 3000);
+            return;
+        }
+
         // 클러스터 필터링: 메트릭은 현재 선택된 클러스터의 데이터만 표시
         if (msg.type === "metric") {
             // 메트릭은 상태를 덮어쓰므로 activeCluster일 때만 업데이트
@@ -97,6 +108,14 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="toast-notification glass-panel">
+            <span style={{color: 'var(--accent-blue)', fontWeight: 'bold', fontSize: '0.85rem'}}>[SYSTEM]</span>
+            <span style={{marginLeft: '0.5rem', whiteSpace: 'pre-line', fontSize: '0.85rem'}}>{toastMessage.replace('[SYSTEM] ', '')}</span>
+        </div>
+      )}
+
       {/* 1. 좌측 패널: 네비게이션 & 클러스터 선택기 (20%) */}
       <div className="nav-panel glass-panel">
          <div className="brand-header">

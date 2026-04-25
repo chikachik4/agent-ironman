@@ -285,3 +285,21 @@ h1, h2, h3 {
 .react-flow__controls-button:hover {
   background: rgba(255, 255, 255, 0.1) !important;
 }
+
+/* Toast Notification */
+.toast-notification {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  padding: 1rem 1.5rem;
+  border-left: 4px solid var(--accent-blue);
+  animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes slideDown {
+  from { transform: translate(-50%, -100%); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
