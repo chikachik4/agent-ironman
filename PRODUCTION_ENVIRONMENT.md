@@ -8,15 +8,15 @@
   - 연결: VPC 3와 VPC Peering으로 연결됨.
 - **VPC 2 (On-prem Simulation):** `10.1.0.0/16`
   - 역할: 온프레미스 환경 시뮬레이션 (Self-managed K8s)
-  - 연결: **Tailscale Mesh VPN** 터널링. ECS Task 내 Tailscale Sidecar를 통해 통신.
+  - 연결: VPC 3와 VPC Peering으로 연결됨.
 - **VPC 3 (Shared Management Hub):** `10.2.0.0/16`
-  - 역할: 컨트롤 타워 (ECS Fargate, Redis, OpenSearch, ALB)
+  - 역할: 컨트롤 타워 (k3s ArgoCD 인스턴스, Redis, OpenSearch, ALB)
   - 연결: 모든 제어 로직과 AI 분석이 수행되는 중앙 허브.
 
 ## 2. AWS Managed Services (Tech Stack)
 | Service | Role | Implementation Detail |
 | :--- | :--- | :--- |
-| **AWS ECS Fargate** | Agent Compute | `Strands SDK` 기반 에이전트들이 개별 Task로 실행됨. |
+| **k3s (ArgoCD 인스턴스)** | Agent Compute | VPC 3의 t3.medium ArgoCD 인스턴스에 설치된 k3s에서 에이전트들이 Pod로 실행됨. ArgoCD GitOps로 배포 관리. |
 | **Amazon EKS** | Target Cluster | VPC 1의 메인 타겟 클러스터. |
 | **AWS Bedrock** | AI/LLM | Claude 3.5 Sonnet (분석용) / Haiku (실행용). VPC Endpoint 연결. |
 | **ElastiCache Redis** | Message Broker | 에이전트 간 비동기 이벤트 및 상태 공유 (Pub/Sub). |
@@ -36,8 +36,8 @@
 
 ## 5. Deployment Strategy
 - **Containerization:** 모든 에이전트는 `uv`로 의존성이 관리된 Docker 이미지로 빌드됨.
-- **Scalability:** 각 에이전트(Interface, Observer, Orchestrator, Analyst)는 부하에 따라 ECS 서비스 단위로 독립적 스케일링 수행.
-- **Networking:** VPC 2 통신은 ECS Task 내에 Tailscale 컨테이너를 사이드카로 띄워 투명한 네트워크 경로 확보.
+- **Scalability:** 각 에이전트(Interface, Observer, Orchestrator, Reporter)는 k3s Deployment 단위로 독립적 스케일링 수행.
+- **Networking:** VPC 2(온프레미스) 통신은 **Tailscale Sidecar 기반 메시 VPN**을 통해 연결
 
 ## 6. Key Operational Scenarios (RAG)
 1. **Anomaly Detection:** Observer 에이전트가 이상 탐지 시 Redis에 이벤트 발행.

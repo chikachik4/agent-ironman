@@ -55,7 +55,7 @@ class Settings(BaseSettings):
                 "vpc1": ClusterConfig(
                     name=f"{self.PROJECT_PREFIX}prod-eks",
                     api_url=eks_endpoint,
-                    prometheus_url=f"http://{vpc1_prom}:9090"
+                    prometheus_url=f"http://{vpc1_prom}:30090"
                 ),
                 "vpc2": ClusterConfig(
                     name=f"{self.PROJECT_PREFIX}onprem-k8s",

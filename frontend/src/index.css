@@ -25,7 +25,6 @@ body {
   color: var(--text-main);
   min-height: 100vh;
   overflow: hidden;
-  /* 우주적인 모던 다크 테마를 위한 은은한 배경 그라데이션 */
   background-image: 
     radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
     radial-gradient(circle at 85% 30%, rgba(239, 68, 68, 0.1), transparent 25%);
@@ -40,27 +39,226 @@ body {
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
+/* 3단 레이아웃 컨테이너 */
 .app-container {
   display: flex;
   height: 100vh;
   padding: 1rem;
   gap: 1rem;
+  overflow: hidden;
 }
 
-/* 60% Left Panel - Metrics */
-.metrics-panel {
-  flex: 6;
+/* 1. 좌측 네비게이션 패널 (고정폭) */
+.nav-panel {
+  width: 280px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
 }
 
-/* 40% Right Panel - Chat */
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 2.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 1rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+}
+
+.cluster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cluster-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+  position: relative;
+}
+
+.cluster-item:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.cluster-item.active {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.cluster-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.cluster-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.cluster-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.cluster-desc {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.active-dot {
+  position: absolute;
+  right: 1rem;
+  width: 8px;
+  height: 8px;
+  background-color: var(--success);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--success);
+}
+
+/* 2. 중앙 메인 패널 (유동폭) */
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0; /* for flex shrinking */
+}
+
+.map-container {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--success);
+  background: rgba(16, 185, 129, 0.1);
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+}
+
+.map-view {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.metrics-row {
+  flex: 1;
+  display: flex;
+  gap: 1rem;
+}
+
+.metric-card {
+  flex: 1;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.metric-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.metric-header h3 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0;
+}
+
+.metric-value {
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+/* 3. 우측 채팅 패널 (토글형) */
+.chat-panel-container {
+  display: flex;
+  position: relative;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 100%;
+}
+
+.chat-panel-container.open {
+  width: 400px;
+}
+
+.chat-panel-container.closed {
+  width: 0px;
+}
+
+.chat-toggle-btn {
+  position: absolute;
+  left: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 48px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  backdrop-filter: blur(16px);
+}
+
 .chat-panel {
-  flex: 4;
+  width: 400px;
+  height: 100%;
   display: flex;
   flex-direction: column;
   padding: 1.5rem;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.chat-panel-container.closed .chat-panel {
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chat-panel-container.open .chat-panel {
+  transform: translateX(0);
+  opacity: 1;
 }
 
 h1, h2, h3 {

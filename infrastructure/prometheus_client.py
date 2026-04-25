@@ -3,35 +3,39 @@ from core.config import settings
 
 class PrometheusClient:
     def __init__(self):
-        # 환경(Test vs Prod)에 따라 Prometheus URL 자동 세팅
+        # 환경에 따라 모니터링 대상 Prometheus 엔드포인트 목록 구성
         if settings.ENVIRONMENT == "test" and "vpc1" in settings.CLUSTERS:
-            self.base_url = settings.CLUSTERS["vpc1"].prometheus_url
+            self.targets = {
+                "vpc1": settings.CLUSTERS["vpc1"].prometheus_url
+            }
         else:
-            self.base_url = "http://localhost:9090"
+            # prod: CLUSTERS에 정의된 모든 활성 클러스터의 Prometheus URL 사용
+            self.targets = {
+                name: cfg.prometheus_url
+                for name, cfg in settings.CLUSTERS.items()
+                if cfg.is_active
+            }
+        # 기본 단일 쿼리용 (Observer Agent 호환)
+        self.base_url = next(iter(self.targets.values())) if self.targets else "http://localhost:9090"
             
     async def query_metric(self, query: str) -> dict:
-        """PromQL을 비동기로 실행하여 지표를 가져옵니다."""
+        """기본 Prometheus URL로 PromQL 쿼리 실행."""
+        return await self.query_metric_from(self.base_url, query)
+
+    async def query_metric_from(self, prom_url: str, query: str) -> dict:
+        """특정 Prometheus URL로 PromQL을 비동기로 실행하여 지표를 가져옵니다."""
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
-                    f"{self.base_url}/api/v1/query",
+                    f"{prom_url}/api/v1/query",
                     params={"query": query},
                     timeout=15.0
                 )
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            print(f"[Prometheus Error] Query failed: {e}")
-            # 데모/테스트 환경에서 프로메테우스가 안 뜰 경우 가상 데이터 반환
-            return {
-                "status": "success",
-                "data": {
-                    "resultType": "vector",
-                    "result": [
-                        {"metric": {"pod": "payment-api-7f8a"}, "value": [1616161616, "0.85"]},
-                        {"metric": {"pod": "database-statefulset-0"}, "value": [1616161616, "0.92"]}
-                    ]
-                }
-            }
+            print(f"[Prometheus Error] Query failed ({prom_url}): {e}")
+            # 연결 실패 시 빈 결과 반환 (오탐 방지)
+            return {"status": "error", "data": {"resultType": "vector", "result": []}}
 
 prom_client = PrometheusClient()

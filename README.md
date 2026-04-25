@@ -9,7 +9,7 @@ Aegis-Chaos는 **AWS EKS와 온프레미스(K8s) 하이브리드 환경**의 자
 - **Delayed & Event-Driven Reporting**: 카오스 실험의 실제 지속 시간(Duration)을 계산하여 비동기로 대기한 후, 실험이 끝나는 시점에 맞춰 사후 브리핑 발송.
 - **Hybrid Cluster Management**: Test(K3s)와 Production(AWS EKS & On-Premises) 클러스터를 단일 인터페이스에서 제어.
 - **Real-time Dashboard**: FastAPI와 WebSocket을 통해 Redis Pub/Sub을 거치는 실시간 에이전트 통신. Datadog/Grafana 스타일의 프리미엄 UI 제공.
-- **Serverless & Cost Optimized**: AWS ECS Fargate 기반으로 필요 시에만 가동(Scale-to-Zero) 가능한 단일 컨테이너 설계.
+- **GitOps Deployment**: ArgoCD가 k3s에 에이전트 Pod를 자동 배포. Git Push 한 번으로 전체 에이전트가 동기화됨 (VPC 3, t3.medium).
 
 ## 📁 Project Structure
 - `api/`: FastAPI 서버 (React 정적 서빙 및 WebSocket 채팅 허브)

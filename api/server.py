@@ -45,14 +45,24 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # 브라우저에서 입력받은 명령어 수신
-            text = await websocket.receive_text()
+            # 브라우저에서 입력받은 명령어 수신 (JSON 형태 예상: {"cluster_id": "vpc1", "text": "..."})
+            raw_text = await websocket.receive_text()
             
+            try:
+                import json
+                data = json.loads(raw_text)
+                cluster_id = data.get("cluster_id", "vpc1")
+                text = data.get("text", "")
+            except Exception:
+                # 하위 호환성 (단순 텍스트)
+                cluster_id = "vpc1"
+                text = raw_text
+                
             # 사용자 메시지 에코 (채팅창 UI용)
-            await websocket.send_json({"sender": "user", "text": text})
+            await websocket.send_json({"sender": "user", "text": text, "cluster_id": cluster_id})
             
             # 수신한 명령어를 Redis 'agent.inbound' 채널로 발행하여 백그라운드 에이전트가 처리하게 함
-            payload = {"sender": "user", "text": text}
+            payload = {"sender": "user", "text": text, "cluster_id": cluster_id}
             await redis_client.publish("agent.inbound", payload)
             
     except WebSocketDisconnect:
