@@ -275,3 +275,13 @@ h1, h2, h3 {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+
+/* React Flow Controls Override */
+.react-flow__controls-button {
+  background: var(--panel-bg) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+  fill: var(--text-main) !important;
+}
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+}

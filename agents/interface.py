@@ -103,7 +103,8 @@ class InterfaceAgent:
 
         await redis_client.publish("agent.outbound", {
             "sender": "Interface Agent",
-            "text": "명령을 분석 중입니다..."
+            "text": "명령을 분석 중입니다...",
+            "cluster_id": cluster_id
         })
 
         # LLM에게 현재 유저가 보고 있는 클러스터의 Context를 주입
@@ -128,12 +129,14 @@ class InterfaceAgent:
             await redis_client.publish("agent.chaos", {"text": chaos_cmd, "cluster_id": del_cluster_id})
             await redis_client.publish("agent.outbound", {
                 "sender": "Interface Agent",
-                "text": user_facing
+                "text": user_facing,
+                "cluster_id": del_cluster_id
             })
         else:
             await redis_client.publish("agent.outbound", {
                 "sender": "Interface Agent",
-                "text": response_text
+                "text": response_text,
+                "cluster_id": cluster_id
             })
 
         print(f"✅ [Interface Agent] 응답 완료")

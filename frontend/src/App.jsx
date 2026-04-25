@@ -4,7 +4,7 @@ import ServiceMap from './components/ServiceMap';
 import './index.css';
 
 function App() {
-  const [messages, setMessages] = useState([]);
+  const [messagesByCluster, setMessagesByCluster] = useState({});
   const [metrics, setMetrics] = useState({ cpu: "0.0%", memory: "0.0 GB" });
   const [input, setInput] = useState('');
   const [ws, setWs] = useState(null);
@@ -12,6 +12,8 @@ function App() {
   const [activeCluster, setActiveCluster] = useState('vpc1');
   const [isChatOpen, setIsChatOpen] = useState(true);
   const chatEndRef = useRef(null);
+
+  const messages = messagesByCluster[activeCluster] || [];
 
   useEffect(() => {
     fetch('http://localhost:8000/api/status')
@@ -39,11 +41,21 @@ function App() {
         const msg = JSON.parse(event.data);
         // 클러스터 필터링: 메트릭은 현재 선택된 클러스터의 데이터만 표시
         if (msg.type === "metric") {
-            if (msg.cluster === activeCluster || !msg.cluster) {
-                setMetrics({ cpu: msg.cpu, memory: msg.memory });
-            }
+            // 메트릭은 상태를 덮어쓰므로 activeCluster일 때만 업데이트
+            setMetrics(prev => {
+               // msg.cluster가 없거나 현재 activeCluster와 일치할 때
+               if (!msg.cluster || msg.cluster === activeCluster) {
+                   return { cpu: msg.cpu, memory: msg.memory };
+               }
+               return prev;
+            });
         } else {
-            setMessages(prev => [...prev, msg]);
+            // 메시지는 해당 클러스터의 배열에 누적
+            const targetCluster = msg.cluster_id || 'vpc1';
+            setMessagesByCluster(prev => {
+                const clusterMsgs = prev[targetCluster] || [];
+                return { ...prev, [targetCluster]: [...clusterMsgs, msg] };
+            });
         }
       };
 
