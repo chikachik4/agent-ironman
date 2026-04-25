@@ -43,7 +43,12 @@ def get_cluster_context(cluster_id: str = "vpc1") -> str:
     # TODO: k8s_client에 cluster_id를 전달하는 로직 추가 필요
     namespaces = k8s_client.get_namespaces()
     pods_summary = k8s_client.get_all_pods_summary()
+    
+    cluster_name = settings.CLUSTERS[cluster_id].name if cluster_id in settings.CLUSTERS else "Unknown Cluster"
+    
     return json.dumps({
+        "cluster_id": cluster_id,
+        "cluster_name": cluster_name,
         "namespaces": namespaces,
         "pods": pods_summary
     }, ensure_ascii=False, indent=2)
@@ -108,7 +113,8 @@ class InterfaceAgent:
         })
 
         # LLM에게 현재 유저가 보고 있는 클러스터의 Context를 주입
-        context_injected_prompt = f"[User is currently viewing cluster: {cluster_id}] {user_text}"
+        cluster_name = settings.CLUSTERS[cluster_id].name if cluster_id in settings.CLUSTERS else "Unknown Cluster"
+        context_injected_prompt = f"[User is currently viewing cluster: {cluster_id} (Actual Name: {cluster_name})] {user_text}"
 
         # Strands Agent는 동기(sync) 호출 — asyncio.to_thread로 비동기 루프에서 안전하게 실행
         result = await asyncio.to_thread(self.agent, context_injected_prompt)
