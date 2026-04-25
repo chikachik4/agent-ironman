@@ -242,5 +242,26 @@ class MultiClusterK8sClient:
             
         return {"nodes": nodes, "edges": edges}
 
+    def get_worker_node_ip(self, cluster_id: str = "vpc1") -> str:
+        """클러스터의 활성 상태인 워커 노드의 InternalIP(또는 ExternalIP)를 반환합니다. (NodePort 접근용)"""
+        if cluster_id not in self.clients:
+            return None
+            
+        try:
+            core_api = self.clients[cluster_id]["core"]
+            nodes = core_api.list_node()
+            for node in nodes.items:
+                # 노드가 Ready 상태인지 확인
+                is_ready = any(cond.type == "Ready" and cond.status == "True" for cond in node.status.conditions)
+                if is_ready:
+                    for addr in node.status.addresses:
+                        # InternalIP를 우선적으로 반환
+                        if addr.type == "InternalIP":
+                            return addr.address
+        except Exception as e:
+            print(f"[K8s Error] get_worker_node_ip: {e}")
+            
+        return None
+
 # 싱글톤 인스턴스 (에이전트들이 공통으로 사용)
 k8s_client = MultiClusterK8sClient()

@@ -20,10 +20,17 @@ class PrometheusClient:
             
     async def query_metric(self, query: str) -> dict:
         """기본 Prometheus URL로 PromQL 쿼리 실행."""
-        return await self.query_metric_from(self.base_url, query)
+        return await self.query_metric_from("vpc1", self.base_url, query)
 
-    async def query_metric_from(self, prom_url: str, query: str) -> dict:
+    async def query_metric_from(self, cluster_id: str, prom_url: str, query: str) -> dict:
         """특정 Prometheus URL로 PromQL을 비동기로 실행하여 지표를 가져옵니다."""
+        
+        # [동적 노드 IP 할당] localhost로 설정되어 있지만 실제 운영 환경인 경우, K8s 노드의 실제 IP로 치환
+        if "localhost" in prom_url and settings.ENVIRONMENT != "test":
+            from infrastructure.k8s_client import k8s_client
+            node_ip = k8s_client.get_worker_node_ip(cluster_id)
+            if node_ip:
+                prom_url = prom_url.replace("localhost", node_ip)
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(

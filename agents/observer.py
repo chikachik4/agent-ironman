@@ -29,7 +29,7 @@ class ObserverAgent:
 
             for cluster_name, prom_url in prom_client.targets.items():
                 query = 'sum(rate(container_cpu_usage_seconds_total{id="/"}[2m]))'
-                data = await prom_client.query_metric_from(prom_url, query)
+                data = await prom_client.query_metric_from(cluster_name, prom_url, query)
 
                 results = data.get("data", {}).get("result", [])
 
