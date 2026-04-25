@@ -1,3 +1,4 @@
+import os
 from kubernetes import client, config
 from core.config import settings
 
