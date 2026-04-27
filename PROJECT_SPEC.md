@@ -7,7 +7,7 @@
 ## 2. Hybrid Architecture
 - **VPC 1 (Prod):** 10.0.0.0/16 (AWS EKS) -> VPC Peering 연결.
 - **VPC 2 (On-prem):** 10.1.0.0/16 (k8s) -> VPC Peering으로 연결.
-- **VPC 3 (Hub):** 10.2.0.0/16 (Management Hub) -> k3s (ArgoCD 인스턴스), Redis, OpenSearch.
+- **VPC 3 (Hub):** 10.2.0.0/16 (Management Hub) -> k3s (ArgoCD 인스턴스), Redis, OpenSearch, **중앙 Prometheus**, Grafana.
 
 ## 3. Technology Stack (Actual)
 - **Compute:**
@@ -20,7 +20,7 @@
 - **Data Store:** **AWS OpenSearch Service (Vector Engine)**
   - *Architecture:* RDS 없이 OpenSearch로 로그(Persistence)와 벡터 검색(RAG) 통합 (Lean Architecture).
 - **Chaos Engine:** **Chaos Mesh** (VPC 1, 2 내 개별 설치)
-- **Observability:** **Prometheus** (Target별 9090 직접 쿼리) + Grafana (VPC 3 통합 시각화)
+- **Observability:** **Prometheus** (VPC1·VPC2 로컬 Prom → Remote Write → VPC3 중앙 Prom 단일 쿼리) + Grafana (VPC3 단일 데이터소스 통합 시각화)
 
 ## 4. Multi-Agent Role (Strands SDK 기반)
 1. **Interface Agent:** 자연어 명령 해석 및 실행 계획(Action Plan) 수립.

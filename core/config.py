@@ -6,13 +6,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ClusterConfig(BaseModel):
     name: str
     api_url: str
-    prometheus_url: str
     is_active: bool = True
 
 class Settings(BaseSettings):
     ENVIRONMENT: str = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "test"))
     VPC1_INSTANCE_PRIVATE_IP: str = "127.0.0.1"
     VPC3_INSTANCE_PRIVATE_IP: str = "127.0.0.1"
+
+    # VPC3 중앙 Prometheus (VPC1·VPC2가 Remote Write로 데이터를 보내는 단일 쿼리 엔드포인트)
+    VPC3_PROMETHEUS_URL: str = os.getenv("VPC3_PROMETHEUS_URL", "")
+
+    @property
+    def CENTRAL_PROMETHEUS_URL(self) -> str:
+        """에이전트가 사용할 중앙 Prometheus URL. 환경변수 미설정 시 VPC3 IP로 자동 구성."""
+        if self.VPC3_PROMETHEUS_URL:
+            return self.VPC3_PROMETHEUS_URL
+        return f"http://{self.VPC3_INSTANCE_PRIVATE_IP}:9090"
     
     @property
     def PROJECT_PREFIX(self) -> str:
@@ -39,30 +48,25 @@ class Settings(BaseSettings):
             return {
                 "vpc1": ClusterConfig(
                     name=f"{self.PROJECT_PREFIX}sandbox-k3s",
-                    api_url=f"https://{vpc1_ip}:6443",
-                    prometheus_url=f"http://{vpc1_ip}:30090"
+                    api_url=f"https://{vpc1_ip}:6443"
                 )
             }
         else:
             # Production Environment (EKS + On-prem K8s)
             eks_endpoint = os.getenv("EKS_CLUSTER_ENDPOINT", "https://eks.amazonaws.com")
             eks_name = os.getenv("EKS_CLUSTER_NAME", "bookjjeok-test-eks-cluster")
-            vpc1_prom = os.getenv("VPC1_PROMETHEUS_IP", "localhost")
             vpc1_context = os.getenv("VPC1_KUBE_CONTEXT", "") # e.g. arn:aws:eks:ap-northeast-2:...
-            
+
             vpc2_k8s = os.getenv("VPC2_K8S_ENDPOINT", "https://onprem.local:6443")
-            vpc2_prom = os.getenv("VPC2_PROMETHEUS_IP", "localhost")
-            
+
             return {
                 "vpc1": ClusterConfig(
                     name=eks_name,
-                    api_url=eks_endpoint,
-                    prometheus_url=f"http://{vpc1_prom}:30090"
+                    api_url=eks_endpoint
                 ),
                 "vpc2": ClusterConfig(
                     name=f"{self.PROJECT_PREFIX}onprem-k8s",
                     api_url=vpc2_k8s,
-                    prometheus_url=f"http://{vpc2_prom}:9090",
                     is_active=False  # 추후 On-prem 연동 완료 시 True로 변경 가능
                 )
             }

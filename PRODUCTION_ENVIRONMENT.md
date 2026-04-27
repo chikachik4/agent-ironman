@@ -24,9 +24,10 @@
 | **Application LB** | External Access | VPC 3의 Grafana 및 관리 도구 외부 노출. |
 
 ## 3. Observability & Chaos Engine
-- **Prometheus:** 각 타겟 클러스터(VPC 1, 2)에 로컬 설치. 에이전트가 내부망을 통해 `9090` 포트로 직접 쿼리.
+- **Prometheus (분산):** VPC1·VPC2 각 클러스터에 로컬 설치. `remote_write` 설정을 통해 VPC3 중앙 Prometheus로 메트릭을 전송. 각 클러스터는 `external_labels: {cluster: "vpc1"}` (또는 `vpc2`)를 설정하여 레이블로 구분.
+- **Prometheus (중앙):** VPC3에 배치. VPC1·VPC2로부터 수신한 메트릭을 통합 저장. 에이전트는 이 단일 엔드포인트만 쿼리함.
 - **Chaos Mesh:** 각 타겟 클러스터 내 설치. 에이전트가 `Custom Resource(CRD)`를 통해 장애 주입.
-- **Grafana:** VPC 3에서 구동되며, 하이브리드 클러스터의 데이터를 통합 시각화.
+- **Grafana:** VPC3에서 구동되며, VPC3 중앙 Prometheus를 단일 데이터소스로 연결하여 하이브리드 클러스터의 데이터를 통합 시각화.
 
 ## 4. Production Security & Policy
 1. **Naming Convention:** 모든 리소스는 `bookjjeok-cloud-` 프리픽스를 사용함.
@@ -37,7 +38,6 @@
 ## 5. Deployment Strategy
 - **Containerization:** 모든 에이전트는 `uv`로 의존성이 관리된 Docker 이미지로 빌드됨.
 - **Scalability:** 각 에이전트(Interface, Observer, Orchestrator, Reporter)는 k3s Deployment 단위로 독립적 스케일링 수행.
-- **Networking:** VPC 2(온프레미스) 통신은 **Tailscale Sidecar 기반 메시 VPN**을 통해 연결
 
 ## 6. Key Operational Scenarios (RAG)
 1. **Anomaly Detection:** Observer 에이전트가 이상 탐지 시 Redis에 이벤트 발행.
